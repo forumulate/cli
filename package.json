@@ -1,0 +1,50 @@
+{
+  "name": "@forumulate/cli",
+  "version": "0.3.6",
+  "description": "Command-line interface for Forumulate — manage orgs, spaces, docs, and search from your terminal.",
+  "license": "MIT",
+  "homepage": "https://forumulate.com/guides",
+  "bugs": {
+    "url": "https://forumulate.com/community"
+  },
+  "keywords": [
+    "forumulate",
+    "cli",
+    "docs",
+    "documentation",
+    "publish",
+    "static-site",
+    "knowledge-base",
+    "doctor"
+  ],
+  "bin": {
+    "forumulate": "dist/cli.js"
+  },
+  "files": [
+    "dist",
+    "README.md",
+    "LICENSE"
+  ],
+  "publishConfig": {
+    "access": "public"
+  },
+  "scripts": {
+    "build": "tsc -p tsconfig.json",
+    "typecheck": "tsc -p tsconfig.json --noEmit --incremental --tsBuildInfoFile node_modules/.cache/tsc-src.tsbuildinfo",
+    "test": "vitest run",
+    "prepublishOnly": "npm run build"
+  },
+  "dependencies": {
+    "@forumulate/sdk": "^0.3.0"
+  },
+  "devDependencies": {
+    "@types/node": "^22.9.0",
+    "typescript": "^5.6.3",
+    "vitest": "^2.1.4"
+  },
+  "author": "Forumulate",
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/forumulate/cli.git"
+  }
+}
