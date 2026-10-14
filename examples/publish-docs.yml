@@ -1,0 +1,27 @@
+# A GitHub Actions workflow for `forumulate publish` — copy to .github/workflows/docs.yml.
+# Guide: https://forumulate.com/guides/publish-from-git
+name: Publish docs
+on:
+  push:
+    branches: [main]
+    paths: ['docs/**', 'forumulate.yaml']
+  pull_request:
+    paths: ['docs/**', 'forumulate.yaml']
+
+jobs:
+  publish:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with: { node-version: 20 }
+      # On a pull request, show the plan and write nothing.
+      - if: github.event_name == 'pull_request'
+        run: npx -y @forumulate/cli@0.4 publish . --dry-run
+        env:
+          FORUMULATE_TOKEN: ${{ secrets.FORUMULATE_TOKEN }}
+      # On main, publish and remove what was deleted.
+      - if: github.event_name == 'push'
+        run: npx -y @forumulate/cli@0.4 publish . --prune
+        env:
+          FORUMULATE_TOKEN: ${{ secrets.FORUMULATE_TOKEN }}

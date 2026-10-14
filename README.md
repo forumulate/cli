@@ -41,11 +41,12 @@ forumulate items acme <spaceId>      # what is in a space, and where its content
 
 ## Common tasks
 
-**1. Publish a folder of markdown (docs-as-code).** Each `.md` file becomes a page; its slug comes from front matter or the file name. Existing pages with the same slug are updated, new ones are created, and both are published. Pages with no file are reported and left alone.
+**1. Publish a folder of Markdown (docs-as-code).** One folder per collection, nested folders as parent pages, front matter for title, slug, description, icon, tags, order and any other page field, images uploaded, links rewritten. Blog and changelog folders become posts. Re-runs change only what changed; `--prune` removes what the folder no longer has; the space is read back afterwards. An optional `forumulate.yaml` sets the space's settings and theme, the site, an OpenAPI reference and status monitors. See [Publish a folder of Markdown from git](https://forumulate.com/guides/publish-from-git) and `examples/publish-docs.yml` for GitHub Actions.
 
 ```sh
-forumulate publish acme <spaceId> ./docs --dry-run   # show the plan, write nothing
-forumulate publish acme <spaceId> ./docs
+forumulate publish ./docs --org acme --space docs --dry-run   # the plan (no token needed for a public space)
+forumulate publish ./docs --org acme --space docs --prune
+forumulate publish . --only getting-started,theme             # just these
 ```
 
 **2. Publish one page by id.**

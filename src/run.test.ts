@@ -32,25 +32,47 @@ function failingClient(): ForumulateClient {
   return client;
 }
 
-/** Records what a directory publish actually wrote, in order. */
+/**
+ * Records what a directory publish actually wrote, in order. Answers the reads
+ * the publisher makes with one docs space holding one page, `using-it`.
+ */
 function publishClient(): ForumulateClient & { writes: string[] } {
   const writes: string[] = [];
+  const page = {
+    id: 'existing-1',
+    slug: 'using-it',
+    title: 'Using it',
+    collectionId: 'c1',
+    parentId: null,
+    sortKey: 'a0',
+    status: 'published',
+  };
+  const reads: Record<string, unknown> = {
+    '/orgs': { orgs: [{ id: 'o1', slug: 'o1' }] },
+    '/orgs/o1/spaces': { spaces: [{ id: 's1', slug: 's1', type: 'DOCS' }] },
+    '/space-types/DOCS': { spaceType: { backing: 'page' } },
+    '/orgs/o1/spaces/s1/collections': {
+      collections: [{ id: 'c1', slug: 'pages', name: 'Pages', isDefault: true, sortKey: 'a0' }],
+    },
+    '/orgs/o1/spaces/s1/pages': { pages: [page] },
+    '/orgs/o1/spaces/s1/shape': { shape: { params: [], sections: [] } },
+    '/orgs/o1/spaces/s1/items': {
+      items: [{ id: 'existing-1', slug: 'using-it', markdown: 'Old body.' }],
+    },
+    '/orgs/o1/spaces/s1/assets': { assets: [] },
+  };
   return {
     writes,
-    items: {
-      list: async () => ({ items: [{ id: 'existing-1', slug: 'using-it', title: 'Using it' }] }),
-      create: async (_o: string, _s: string, input: { slug?: string }) => {
-        writes.push(`create:${input.slug}`);
-        return { item: { id: `new-${input.slug}` } };
-      },
-      setContent: async (_o: string, _s: string, itemId: string) => {
-        writes.push(`content:${itemId}`);
-        return { conformance: {} };
-      },
-      publish: async (_o: string, _s: string, itemId: string) => {
-        writes.push(`publish:${itemId}`);
-        return { published: true };
-      },
+    request: async (
+      method: string,
+      path: string,
+      opts: { body?: { files?: { name: string }[]; dryRun?: boolean } } = {},
+    ) => {
+      if (method === 'GET') return reads[path] ?? {};
+      writes.push(
+        `${method} ${path.replace('/orgs/o1/spaces/s1', '')}${opts.body?.files ? ` ${opts.body.files.map((f) => f.name).join(',')}` : ''}${opts.body?.dryRun ? ' (dryRun)' : ''}`,
+      );
+      return { created: 1, replaced: 1, failed: 0 };
     },
   } as unknown as ForumulateClient & { writes: string[] };
 }
@@ -294,28 +316,31 @@ describe('publishing a directory', () => {
     writeFileSync(join(dir, 'guide.md'), '---\nslug: using-it\ntitle: Using it\n---\n\nBody.\n');
     const out: string[] = [];
     const client = publishClient();
-    const code = await run(['publish', 'o1', 's1', dir, '--dry-run'], deps(out, client));
+    const code = await run(
+      ['publish', 'o1', 's1', dir, '--dry-run', '--pace', '0'],
+      deps(out, client),
+    );
     expect(code).toBe(0);
     const text = out.join('\n');
-    expect(text).toContain('create  intro');
-    expect(text).toContain('update  using-it');
+    expect(text).toContain('create  page intro');
+    expect(text).toContain('update  page using-it');
     expect(text).toContain('nothing was written');
-    expect(client.writes).toEqual([]);
+    // The only POST is the importer's own dry run, which writes nothing.
+    expect(client.writes).toEqual(['POST /docs/import 01-intro.md,guide.md (dryRun)']);
   });
 
-  it('creates, updates and publishes without it', async () => {
+  it('sends only what changed through the importer, with the slug declared', async () => {
     const dir = mkdtempSync(join(tmpdir(), 'fdocs-'));
     writeFileSync(join(dir, '01-intro.md'), '# Intro\n\nHello.\n');
-    writeFileSync(join(dir, 'guide.md'), '---\nslug: using-it\n---\n\n# Using it\n\nBody.\n');
+    writeFileSync(join(dir, 'guide.md'), '---\nslug: using-it\n---\n\n# Using it\n\nOld body.\n');
     const out: string[] = [];
     const client = publishClient();
-    expect(await run(['publish', 'o1', 's1', dir], deps(out, client))).toBe(0);
-    expect(client.writes).toEqual([
-      'create:intro',
-      'publish:new-intro',
-      'content:existing-1',
-      'publish:existing-1',
-    ]);
+    await run(
+      ['publish', dir, '--org', 'o1', '--space', 's1', '--pace', '0', '--no-verify'],
+      deps(out, client),
+    );
+    // `guide.md` matches the live page, so only the new file is imported.
+    expect(client.writes[0]).toBe('POST /docs/import 01-intro.md');
   });
 });
 

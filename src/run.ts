@@ -3,14 +3,14 @@ import type { ForumulateClient } from '@forumulate/sdk';
 import { runConformance } from './conformance';
 import { runDoctor } from './doctor';
 import { forgetToken, storeToken } from './credentials';
-import { describePlan, planPublish, readDocs } from './publish-dir';
+import { runPublish } from './publish/command';
 import { apiBaseFromEnv, siteFromEnv } from './api-base';
 
 /**
  * Kept in step with package.json by `cli-version.test.ts` — they had drifted to
  * 0.1.0 and 0.2.1, so `--version` reported a release that was never published.
  */
-export const VERSION = '0.3.6';
+export const VERSION = '0.4.0';
 
 export interface RunDeps {
   /** The API client. Injected so the CLI is testable without a live server. */
@@ -25,7 +25,19 @@ export interface RunDeps {
   baseUrl?: string;
   prompt?: (question: string) => Promise<string>;
   env?: NodeJS.ProcessEnv;
+  /**
+   * Whether a token was found. A directory publish reads the PUBLIC space
+   * without one (`--dry-run` only) instead of failing on the first 401.
+   * Absent means yes — a test's fake client stands for an authenticated one.
+   */
+  authed?: boolean;
+  /** Multipart POST (asset uploads) — the one call the SDK's JSON `request` cannot make. */
+  upload?: (path: string, form: FormData) => Promise<unknown>;
+  sleep?: (ms: number) => Promise<void>;
 }
+
+/** Flags that take a value, so `--only intro` does not read `intro` as an argument. */
+const VALUE_FLAGS = new Set(['--token', '--org', '--space', '--manifest', '--only', '--pace']);
 
 const HELP = `forumulate — Forumulate command-line interface
 
@@ -43,9 +55,22 @@ Commands:
   items <orgId> <spaceId>            List what is in a space, with where each
                                      piece's content lives
   search <orgId> <query...>          Unified search across docs/forum/blog
+  publish <folder>                   Publish a folder of Markdown: one folder per
+                                     collection, front matter, assets, order,
+                                     and a forumulate.yaml manifest for space,
+                                     site, theme, OpenAPI and monitors. Re-runs
+                                     change only what changed, then read back.
+      --org <id|slug> --space <id|slug>   (or org:/space: in the manifest)
+      --dry-run   print the plan, write nothing (no token needed for a
+                  public space)
+      --prune     remove pages/posts/collections with no file (to the trash)
+      --only a,b  just these slugs, files, folders, or manifest parts
+                  (site, theme, settings, openapi, monitors)
+      --force     re-send every page even if it looks unchanged
+      --no-verify skip the read-back      --pace <ms> gap between writes
+      --manifest <file>  a manifest somewhere else
   publish <orgId> <spaceId> <pageId> Publish a page
-  publish <orgId> <spaceId> <dir>    Publish every .md in a directory — add
-                                     --dry-run to see the plan and write nothing
+  publish <orgId> <spaceId> <dir>    The folder form, with org and space given
   domains <orgId> <spaceId>          List this space's domains and their state
   domains verify <orgId> <spaceId> <hostname>
                                      Re-run verification and say what is missing
@@ -81,7 +106,10 @@ Flags:
  * so it can be unit-tested with a fake client. Returns a process exit code.
  */
 export async function run(argv: string[], deps: RunDeps): Promise<number> {
-  const args = argv.filter((a) => !a.startsWith('--'));
+  const args = argv.filter(
+    (a, i) =>
+      !a.startsWith('--') && !(VALUE_FLAGS.has(argv[i - 1] ?? '') && !argv[i - 1]!.includes('=')),
+  );
   const flags = new Set(argv.filter((a) => a.startsWith('--')).map((a) => a.split('=')[0]!));
   /** `--token=abc` or `--token abc`, for the flags that carry a value. */
   const flagValue = (name: string): string | undefined => {
@@ -173,55 +201,60 @@ export async function run(argv: string[], deps: RunDeps): Promise<number> {
         return 0;
       }
       case 'publish': {
-        const [orgId, spaceId, target] = rest;
-        if (!orgId || !spaceId || !target)
-          return usage(deps, 'publish <orgId> <spaceId> <pageId|directory> [--dry-run]');
         /*
          * One verb, two objects. `publish <pageId>` published exactly one page
          * by id, which is the thing a person doing docs-as-code never has:
-         * they have a directory (a customer DX report). A path that exists on disk is a
-         * directory publish; anything else is the id form, unchanged.
+         * they have a directory (a customer DX report). A path that exists on
+         * disk is a folder publish; anything else is the id form, unchanged.
          */
-        const isDir = (() => {
+        const isDir = (p: string | undefined) => {
           try {
-            return statSync(target).isDirectory();
+            return Boolean(p) && statSync(p!).isDirectory();
           } catch {
             return false;
           }
-        })();
-        if (!isDir) {
-          await deps.client.spaces.publishPage(orgId, spaceId, target);
-          deps.out(`Published ${target}.`);
-          return 0;
-        }
-        const docs = readDocs(target);
-        const { items } = await deps.client.items.list(orgId, spaceId, { limit: 200 });
-        const plan = planPublish(docs, items as { id: string; slug?: string; title: string }[]);
-        if (json) dump(plan);
-        else {
-          deps.out(`${docs.length} file(s) in ${target}:`);
-          for (const line of describePlan(plan, target)) deps.out(line);
-        }
-        if (flags.has('--dry-run')) {
-          if (!json) deps.out('--dry-run: nothing was written.');
-          return 0;
-        }
-        for (const doc of plan.create) {
-          const { item } = await deps.client.items.create(orgId, spaceId, {
-            title: doc.title,
-            slug: doc.slug,
-            body: doc.markdown,
-          });
-          await deps.client.items.publish(orgId, spaceId, item.id);
-        }
-        for (const doc of plan.update) {
-          await deps.client.items.setContent(orgId, spaceId, doc.itemId, { body: doc.markdown });
-          await deps.client.items.publish(orgId, spaceId, doc.itemId);
-        }
-        if (!json)
-          deps.out(
-            `Published ${plan.create.length} new and ${plan.update.length} updated piece(s).`,
+        };
+        const folder =
+          rest.length === 1 ? rest[0] : rest.length === 3 && isDir(rest[2]) ? rest[2] : undefined;
+        if (folder) {
+          const legacy = rest.length === 3;
+          const only = argv
+            .flatMap((a, i) =>
+              a.startsWith('--only=') ? [a.slice(7)] : a === '--only' ? [argv[i + 1] ?? ''] : [],
+            )
+            .flatMap((v) => v.split(','))
+            .filter(Boolean);
+          const pace = Number(flagValue('--pace') ?? 250);
+          return runPublish(
+            {
+              folder,
+              org: legacy ? rest[0] : flagValue('--org'),
+              space: legacy ? rest[1] : flagValue('--space'),
+              manifest: flagValue('--manifest'),
+              dryRun: flags.has('--dry-run'),
+              prune: flags.has('--prune'),
+              force: flags.has('--force'),
+              verify: !flags.has('--no-verify'),
+              only: only.length ? only : undefined,
+              paceMs: Number.isFinite(pace) && pace >= 0 ? pace : 250,
+              json,
+            },
+            {
+              client: deps.client,
+              authed: deps.authed ?? true,
+              out: deps.out,
+              err: deps.err,
+              upload: deps.upload,
+              env: deps.env,
+              sleep: deps.sleep,
+            },
           );
+        }
+        const [orgId, spaceId, target] = rest;
+        if (!orgId || !spaceId || !target)
+          return usage(deps, 'publish <folder> | publish <orgId> <spaceId> <pageId>');
+        await deps.client.spaces.publishPage(orgId, spaceId, target);
+        deps.out(`Published ${target}.`);
         return 0;
       }
       case 'snapshot': {

@@ -2,7 +2,7 @@
 import { createInterface } from 'node:readline';
 import { ForumulateClient } from '@forumulate/sdk';
 import { resolveToken } from './credentials';
-import { run } from './run';
+import { run, VERSION } from './run';
 import { apiBaseFromEnv } from './api-base';
 
 /**
@@ -35,10 +35,34 @@ async function main(): Promise<void> {
   // The environment first, then what `login` stored for THIS API — see
   // `credentials.ts` for why the env var still wins.
   const token = resolveToken(baseUrl);
-  const client = new ForumulateClient({ baseUrl, token });
+  /*
+   * Named, because the edge in front of the hosted API answers a default
+   * library User-Agent with a block page (Cloudflare 1010) rather than JSON —
+   * and our own scripts each learned that separately.
+   */
+  const userAgent = `@forumulate/cli/${VERSION}`;
+  const client = new ForumulateClient({ baseUrl, token, headers: { 'User-Agent': userAgent } });
+  /** Multipart for asset uploads: the SDK's `request` always sends JSON. */
+  const upload = async (path: string, form: FormData): Promise<unknown> => {
+    const res = await fetch(baseUrl + path, {
+      method: 'POST',
+      headers: { 'User-Agent': userAgent, ...(token ? { Authorization: `Bearer ${token}` } : {}) },
+      body: form,
+    });
+    const text = await res.text();
+    const json = text ? (JSON.parse(text) as { error?: { code?: string; message?: string } }) : {};
+    if (!res.ok)
+      throw Object.assign(new Error(json.error?.message ?? res.statusText), {
+        status: res.status,
+        code: json.error?.code,
+      });
+    return json;
+  };
   const code = await run(process.argv.slice(2), {
     client,
     baseUrl,
+    authed: Boolean(token),
+    upload,
     prompt: askSecret,
     out: (l) => process.stdout.write(l + '\n'),
     err: (l) => process.stderr.write(l + '\n'),
