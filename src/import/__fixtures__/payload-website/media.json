@@ -1,0 +1,4 @@
+{ "docs": [
+  { "id": 1, "alt": "A hero picture", "filename": "hero.png", "mimeType": "image/png", "url": "/api/media/file/hero.png" },
+  { "id": 2, "alt": "Inline picture", "filename": "inline.png", "mimeType": "image/png", "url": "/api/media/file/inline.png" }
+] }

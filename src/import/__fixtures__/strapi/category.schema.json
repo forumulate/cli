@@ -1,0 +1,3 @@
+{ "kind": "collectionType", "collectionName": "categories",
+  "info": { "singularName": "category", "pluralName": "categories", "displayName": "Category" },
+  "attributes": { "name": { "type": "string", "required": true }, "slug": { "type": "uid" } } }

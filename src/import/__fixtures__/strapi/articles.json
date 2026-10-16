@@ -1,0 +1,18 @@
+{ "data": [
+  { "id": 5, "documentId": "art5", "title": "Hello Strapi", "slug": "hello-strapi", "kind": "guide", "rating": 4.5, "secret": "x",
+    "publishedAt": "2025-05-01T00:00:00.000Z",
+    "cover": { "id": 7, "name": "cover.png", "url": "/uploads/cover.png", "mime": "image/png", "alternativeText": "Cover" },
+    "gallery": [{ "id": 8, "name": "g1.png", "url": "/uploads/g1.png", "mime": "image/png" }],
+    "category": { "id": 1, "documentId": "cat1", "name": "Guides" },
+    "related": [{ "id": 6, "documentId": "art6" }],
+    "body": [
+      { "type": "heading", "level": 2, "children": [{ "type": "text", "text": "Start" }] },
+      { "type": "paragraph", "children": [{ "type": "text", "text": "Plain " }, { "type": "text", "text": "bold", "bold": true }, { "type": "link", "url": "https://example.com", "children": [{ "type": "text", "text": "link" }] }] },
+      { "type": "list", "format": "ordered", "children": [{ "type": "list-item", "children": [{ "type": "text", "text": "one" }] }] },
+      { "type": "code", "language": "ts", "children": [{ "type": "text", "text": "let a = 1" }] },
+      { "type": "image", "image": { "url": "/uploads/g1.png", "alternativeText": "G1" } }
+    ],
+    "legacyBody": "# Old\n\nText with **bold**, a [link](https://example.com) and `code`.\n\n- a\n- b\n",
+    "seo": { "metaTitle": "Hello" } },
+  { "id": 6, "documentId": "art6", "title": "Draft article", "publishedAt": null, "related": [{ "id": 5 }] }
+] }

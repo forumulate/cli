@@ -5,12 +5,14 @@ import { runDoctor } from './doctor';
 import { forgetToken, storeToken } from './credentials';
 import { runPublish } from './publish/command';
 import { apiBaseFromEnv, siteFromEnv } from './api-base';
+import { CONTENT_VALUE_FLAGS, runContent, type ContentDeps } from './content/command';
+import { IMPORT_VALUE_FLAGS, runImportCommand } from './import/command';
 
 /**
  * Kept in step with package.json by `cli-version.test.ts` — they had drifted to
  * 0.1.0 and 0.2.1, so `--version` reported a release that was never published.
  */
-export const VERSION = '0.4.0';
+export const VERSION = '0.5.0';
 
 export interface RunDeps {
   /** The API client. Injected so the CLI is testable without a live server. */
@@ -34,10 +36,14 @@ export interface RunDeps {
   /** Multipart POST (asset uploads) — the one call the SDK's JSON `request` cannot make. */
   upload?: (path: string, form: FormData) => Promise<unknown>;
   sleep?: (ms: number) => Promise<void>;
+  /** A visible y/N question (`content push`); `prompt` hides what is typed, which suits a token only. */
+  ask?: (question: string) => Promise<string>;
+  /** File access for `content`, injected so its tests touch no disk. */
+  files?: ContentDeps['files'];
 }
 
 /** Flags that take a value, so `--only intro` does not read `intro` as an argument. */
-const VALUE_FLAGS = new Set(['--token', '--org', '--space', '--manifest', '--only', '--pace']);
+const VALUE_FLAGS = new Set(['--token', '--org', '--space', '--manifest', '--only', '--pace', ...CONTENT_VALUE_FLAGS, ...IMPORT_VALUE_FLAGS]);
 
 const HELP = `forumulate — Forumulate command-line interface
 
@@ -75,6 +81,28 @@ Commands:
   domains verify <orgId> <spaceId> <hostname>
                                      Re-run verification and say what is missing
   snapshot <orgId> <spaceId> <label> Create a space version snapshot
+  content types --library <id|slug>  TypeScript for a content library's model:
+                                     collections, globals, the block union
+      [--org <id|slug>] [--out forumulate.d.ts] [--preview] [--schema <file>]
+      [--check]   fail (exit 1) when the file is out of date, write nothing
+  content pull --library <id|slug>   Write the model to forumulate.content.json
+      [--format json|payload] [--out <file>]   (payload: forumulate.payload.ts)
+  content push [file]                Show the diff against the library, then
+                                     apply it as a new model version
+      [--library …] [--dry-run] [--yes] [--force]
+      [--rename type.field=new | block:hero.field=new | library:field=new]
+      [--rename-type old=new] [--rename-block old=new]
+  import <payload|contentful|sanity|strapi|wordpress> <export path>
+                                     Bring another CMS's content into a library:
+                                     model, media, entries, references (always
+                                     shows a dry run first)
+                                     Re-running updates entries a
+                                     previous import made. strapi takes a
+                                     folder or an unencrypted export .tar.gz
+      --library <id|slug> [--org …] [--dry-run] [--yes]
+      [--config payload.config.ts]   (payload) the config that becomes the model
+      [--publish source|all|none]    what to publish (default: what was live)
+      [--allow-model-removals] [--pace <ms>] [--base-url <url>] (strapi uploads)
   conformance <collectionUrl>        Run the Content Sync Protocol suite against
                                      any platform's collection endpoint
   doctor <readerUrl>                 Check a live site from the outside: health,
@@ -91,6 +119,8 @@ Environment:
                      ending in /api is used as-is.
   FORUMULATE_API_URL Exact API base, for a local API with no /api prefix
                      (http://localhost:4000). Wins over FORUMULATE_URL.
+  FORUMULATE_ORG, FORUMULATE_LIBRARY
+                     Defaults for --org and --library (content commands).
 
 The SDK (ForumulateClient.fromEnv) and the MCP server (@forumulate/mcp) read
 the same variables. Guide: https://forumulate.com/guides/api-tokens-and-scopes
@@ -408,6 +438,25 @@ export async function run(argv: string[], deps: RunDeps): Promise<number> {
         // is what a script reads, so it has to say which happened.
         return domain.verified ? 0 : 1;
       }
+      case 'content':
+        return runContent(argv, rest, {
+          client: deps.client,
+          out: deps.out,
+          err: deps.err,
+          env: deps.env,
+          ask: deps.ask,
+          files: deps.files,
+        });
+      case 'import':
+        return runImportCommand(argv, rest, {
+          client: deps.client,
+          out: deps.out,
+          err: deps.err,
+          env: deps.env,
+          ask: deps.ask,
+          upload: deps.upload,
+          sleep: deps.sleep,
+        });
       default:
         deps.err(`Unknown command: ${cmd}`);
         deps.out(HELP);

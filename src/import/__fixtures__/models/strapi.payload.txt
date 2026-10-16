@@ -1,0 +1,110 @@
+export default {
+  "collections": [
+    {
+      "slug": "article",
+      "labels": {
+        "singular": "Article",
+        "plural": "Article"
+      },
+      "fields": [
+        {
+          "name": "title",
+          "type": "text",
+          "label": "title",
+          "required": true
+        },
+        {
+          "name": "slug",
+          "type": "text",
+          "label": "slug"
+        },
+        {
+          "name": "body",
+          "type": "richText",
+          "label": "body"
+        },
+        {
+          "name": "legacyBody",
+          "type": "richText",
+          "label": "legacyBody"
+        },
+        {
+          "name": "cover",
+          "type": "upload",
+          "label": "cover",
+          "relationTo": "media"
+        },
+        {
+          "name": "gallery",
+          "type": "array",
+          "label": "gallery",
+          "fields": [
+            {
+              "name": "value",
+              "type": "upload",
+              "relationTo": "media"
+            }
+          ]
+        },
+        {
+          "name": "category",
+          "type": "relationship",
+          "label": "category",
+          "relationTo": "category"
+        },
+        {
+          "name": "related",
+          "type": "relationship",
+          "label": "related",
+          "hasMany": true,
+          "relationTo": "article"
+        },
+        {
+          "name": "rating",
+          "type": "number",
+          "label": "rating"
+        },
+        {
+          "name": "seo",
+          "type": "json",
+          "label": "seo"
+        },
+        {
+          "name": "kind",
+          "type": "select",
+          "label": "kind",
+          "options": [
+            {
+              "label": "news",
+              "value": "news"
+            },
+            {
+              "label": "guide",
+              "value": "guide"
+            }
+          ]
+        }
+      ]
+    },
+    {
+      "slug": "category",
+      "labels": {
+        "singular": "Category",
+        "plural": "Category"
+      },
+      "fields": [
+        {
+          "name": "name",
+          "type": "text",
+          "label": "name",
+          "required": true
+        },
+        {
+          "name": "slug",
+          "type": "text",
+          "label": "slug"
+        }
+      ]
+    }
+  ]
+}

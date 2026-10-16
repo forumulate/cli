@@ -1,0 +1,28 @@
+{ "docs": [
+  {
+    "id": 10, "title": "First post", "slug": "first-post", "_status": "published",
+    "heroImage": 1,
+    "categories": [1, 2],
+    "relatedPosts": [11],
+    "authors": [3],
+    "publishedAt": "2025-02-01T09:30:00.000Z",
+    "content": { "root": { "type": "root", "children": [
+      { "type": "heading", "tag": "h2", "children": [{ "type": "text", "text": "Hello", "format": 0 }] },
+      { "type": "paragraph", "children": [
+        { "type": "text", "text": "Bold ", "format": 1 },
+        { "type": "link", "fields": { "url": "https://example.com/docs" }, "children": [{ "type": "text", "text": "a link", "format": 0 }] }
+      ] },
+      { "type": "list", "listType": "bullet", "children": [
+        { "type": "listitem", "children": [{ "type": "text", "text": "one", "format": 0 }] },
+        { "type": "listitem", "children": [{ "type": "text", "text": "two", "format": 0 }] }
+      ] },
+      { "type": "upload", "value": { "id": 2, "url": "/api/media/file/inline.png", "filename": "inline.png", "alt": "Inline picture" } }
+    ] } }
+  },
+  {
+    "id": 11, "title": "Second post", "slug": "second-post", "_status": "draft",
+    "relatedPosts": [{ "relationTo": "posts", "value": 10 }, 99],
+    "categories": [{ "id": 1, "title": "Technology" }],
+    "content": { "root": { "type": "root", "children": [{ "type": "paragraph", "children": [{ "type": "text", "text": "Draft body", "format": 0 }] }] } }
+  }
+] }

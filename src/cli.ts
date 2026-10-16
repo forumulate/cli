@@ -30,6 +30,17 @@ function askSecret(question: string): Promise<string> {
   });
 }
 
+/** A visible question, for a y/N; no answer where nobody can type one. */
+function ask(question: string): Promise<string> {
+  const rl = createInterface({ input: process.stdin, output: process.stdout });
+  return new Promise((resolve) => {
+    rl.question(question, (answer) => {
+      rl.close();
+      resolve(answer);
+    });
+  });
+}
+
 async function main(): Promise<void> {
   const baseUrl = apiBaseFromEnv();
   // The environment first, then what `login` stored for THIS API — see
@@ -64,6 +75,8 @@ async function main(): Promise<void> {
     authed: Boolean(token),
     upload,
     prompt: askSecret,
+    // A push in CI has no one to ask: it needs --yes, rather than hanging on stdin.
+    ask: process.stdin.isTTY ? ask : undefined,
     out: (l) => process.stdout.write(l + '\n'),
     err: (l) => process.stderr.write(l + '\n'),
   });

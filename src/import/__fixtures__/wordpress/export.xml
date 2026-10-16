@@ -1,0 +1,60 @@
+<?xml version="1.0" encoding="UTF-8" ?>
+<rss version="2.0" xmlns:excerpt="http://wordpress.org/export/1.2/excerpt/" xmlns:content="http://purl.org/rss/1.0/modules/content/" xmlns:dc="http://purl.org/dc/elements/1.1/" xmlns:wp="http://wordpress.org/export/1.2/">
+<channel>
+  <title>My Blog</title>
+  <item>
+    <title><![CDATA[Hello world &amp; welcome]]></title>
+    <dc:creator><![CDATA[admin]]></dc:creator>
+    <content:encoded><![CDATA[<!-- wp:paragraph --><p>Welcome to <strong>WordPress</strong>. See <a href="https://example.com/a">this</a>.</p><!-- /wp:paragraph -->
+<h2>Section</h2>
+<ul><li>one</li><li>two</li></ul>
+<figure class="wp-block-image"><img src="https://blog.test/wp-content/uploads/2025/pic.jpg" alt="Pic"/><figcaption>A caption</figcaption></figure>
+<pre class="wp-block-code"><code class="language-php">echo 1;</code></pre>
+<script>alert(1)</script>]]></content:encoded>
+    <excerpt:encoded><![CDATA[Short excerpt]]></excerpt:encoded>
+    <wp:post_id>10</wp:post_id>
+    <wp:post_date_gmt><![CDATA[2025-06-01 12:00:00]]></wp:post_date_gmt>
+    <wp:post_name><![CDATA[hello-world]]></wp:post_name>
+    <wp:status><![CDATA[publish]]></wp:status>
+    <wp:post_type><![CDATA[post]]></wp:post_type>
+    <category domain="category" nicename="news"><![CDATA[News]]></category>
+    <category domain="post_tag" nicename="intro"><![CDATA[intro]]></category>
+    <wp:postmeta><wp:meta_key><![CDATA[_thumbnail_id]]></wp:meta_key><wp:meta_value><![CDATA[20]]></wp:meta_value></wp:postmeta>
+  </item>
+  <item>
+    <title><![CDATA[About]]></title>
+    <dc:creator><![CDATA[admin]]></dc:creator>
+    <content:encoded><![CDATA[First paragraph.
+
+Second paragraph
+with a line break.]]></content:encoded>
+    <excerpt:encoded><![CDATA[]]></excerpt:encoded>
+    <wp:post_id>11</wp:post_id>
+    <wp:post_date_gmt><![CDATA[0000-00-00 00:00:00]]></wp:post_date_gmt>
+    <wp:post_date><![CDATA[2025-06-02 08:00:00]]></wp:post_date>
+    <wp:post_name><![CDATA[about]]></wp:post_name>
+    <wp:status><![CDATA[draft]]></wp:status>
+    <wp:post_type><![CDATA[page]]></wp:post_type>
+  </item>
+  <item>
+    <title><![CDATA[pic.jpg]]></title>
+    <wp:post_id>20</wp:post_id>
+    <wp:status><![CDATA[inherit]]></wp:status>
+    <wp:post_type><![CDATA[attachment]]></wp:post_type>
+    <wp:attachment_url><![CDATA[https://blog.test/wp-content/uploads/2025/pic.jpg]]></wp:attachment_url>
+    <wp:postmeta><wp:meta_key><![CDATA[_wp_attachment_image_alt]]></wp:meta_key><wp:meta_value><![CDATA[Pic alt]]></wp:meta_value></wp:postmeta>
+  </item>
+  <item>
+    <title><![CDATA[Menu entry]]></title>
+    <wp:post_id>30</wp:post_id>
+    <wp:status><![CDATA[publish]]></wp:status>
+    <wp:post_type><![CDATA[nav_menu_item]]></wp:post_type>
+  </item>
+  <item>
+    <title><![CDATA[Gone]]></title>
+    <wp:post_id>31</wp:post_id>
+    <wp:status><![CDATA[trash]]></wp:status>
+    <wp:post_type><![CDATA[post]]></wp:post_type>
+  </item>
+</channel>
+</rss>

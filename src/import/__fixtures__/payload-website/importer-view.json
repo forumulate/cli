@@ -1,0 +1,205 @@
+{
+  "types": {
+    "pages": {
+      "titleField": "title",
+      "fields": [
+        {
+          "key": "title",
+          "type": "text"
+        },
+        {
+          "key": "hero",
+          "type": "group",
+          "fields": [
+            {
+              "key": "type",
+              "type": "select"
+            },
+            {
+              "key": "richText",
+              "type": "richText"
+            },
+            {
+              "key": "media",
+              "type": "media"
+            }
+          ]
+        },
+        {
+          "key": "layout",
+          "type": "blocks"
+        },
+        {
+          "key": "meta",
+          "type": "group",
+          "fields": [
+            {
+              "key": "title",
+              "type": "text"
+            },
+            {
+              "key": "description",
+              "type": "textarea"
+            },
+            {
+              "key": "image",
+              "type": "media"
+            }
+          ]
+        },
+        {
+          "key": "publishedAt",
+          "type": "datetime"
+        },
+        {
+          "key": "slug",
+          "type": "text"
+        }
+      ]
+    },
+    "posts": {
+      "titleField": "title",
+      "fields": [
+        {
+          "key": "title",
+          "type": "text"
+        },
+        {
+          "key": "heroImage",
+          "type": "media"
+        },
+        {
+          "key": "content",
+          "type": "richText"
+        },
+        {
+          "key": "relatedPosts",
+          "type": "reference",
+          "hasMany": true,
+          "to": [
+            {
+              "kind": "entry",
+              "types": [
+                "posts"
+              ]
+            }
+          ]
+        },
+        {
+          "key": "categories",
+          "type": "reference",
+          "hasMany": true,
+          "to": [
+            {
+              "kind": "entry",
+              "types": [
+                "categories"
+              ]
+            }
+          ]
+        },
+        {
+          "key": "authors",
+          "type": "reference",
+          "hasMany": true,
+          "to": [
+            {
+              "kind": "entry",
+              "types": [
+                "users"
+              ]
+            }
+          ]
+        },
+        {
+          "key": "publishedAt",
+          "type": "datetime"
+        },
+        {
+          "key": "slug",
+          "type": "text"
+        }
+      ]
+    },
+    "categories": {
+      "titleField": "title",
+      "fields": [
+        {
+          "key": "title",
+          "type": "text"
+        },
+        {
+          "key": "slug",
+          "type": "text"
+        }
+      ]
+    },
+    "header": {
+      "singleton": true,
+      "fields": [
+        {
+          "key": "navItems",
+          "type": "array",
+          "fields": [
+            {
+              "key": "link",
+              "type": "group",
+              "fields": [
+                {
+                  "key": "type",
+                  "type": "select"
+                },
+                {
+                  "key": "newTab",
+                  "type": "boolean"
+                },
+                {
+                  "key": "url",
+                  "type": "text"
+                },
+                {
+                  "key": "label",
+                  "type": "text"
+                }
+              ]
+            }
+          ]
+        }
+      ]
+    }
+  },
+  "blocks": {
+    "cta": [
+      {
+        "key": "richText",
+        "type": "richText"
+      },
+      {
+        "key": "style",
+        "type": "select"
+      }
+    ],
+    "content": [
+      {
+        "key": "columns",
+        "type": "array",
+        "fields": [
+          {
+            "key": "size",
+            "type": "select"
+          },
+          {
+            "key": "richText",
+            "type": "richText"
+          }
+        ]
+      }
+    ],
+    "mediaBlock": [
+      {
+        "key": "media",
+        "type": "media"
+      }
+    ]
+  }
+}

@@ -1,0 +1,68 @@
+export default {
+  "collections": [
+    {
+      "slug": "author",
+      "fields": [
+        {
+          "name": "name",
+          "type": "text"
+        },
+        {
+          "name": "bio",
+          "type": "text"
+        },
+        {
+          "name": "slug",
+          "type": "text"
+        }
+      ]
+    },
+    {
+      "slug": "post",
+      "fields": [
+        {
+          "name": "title",
+          "type": "text"
+        },
+        {
+          "name": "slug",
+          "type": "text"
+        },
+        {
+          "name": "publishedAt",
+          "type": "date"
+        },
+        {
+          "name": "author",
+          "type": "relationship",
+          "relationTo": "author"
+        },
+        {
+          "name": "mainImage",
+          "type": "upload",
+          "relationTo": "media"
+        },
+        {
+          "name": "categories",
+          "type": "array",
+          "fields": [
+            {
+              "name": "value",
+              "type": "text"
+            }
+          ]
+        },
+        {
+          "name": "related",
+          "type": "relationship",
+          "hasMany": true,
+          "relationTo": "post"
+        },
+        {
+          "name": "body",
+          "type": "richText"
+        }
+      ]
+    }
+  ]
+}

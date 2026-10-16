@@ -1,0 +1,52 @@
+// What a customer's site does with the generated types: render every block
+// type exhaustively, read entries and globals by their fields. Compiled by
+// types-gen.test.ts against the types generated for the website template.
+import type {
+  Block,
+  ContentTypeKey,
+  Entries,
+  ForumulateContent,
+  GlobalKey,
+  Globals,
+  PageFields,
+  PostEntry,
+} from './forumulate';
+
+export function renderBlock(block: Block): string {
+  switch (block.blockType) {
+    case 'hero':
+      return `<h1>${block.heading ?? ''}</h1>${block.subheading ?? ''}${(block.ctas ?? []).map((c) => c.label ?? c.link?.url ?? '').join('')}${block.variant === 'split' ? block.image?.url ?? '' : ''}`;
+    case 'text':
+      return block.body?.type === 'doc' ? JSON.stringify(block.body.content ?? []) : '';
+    case 'features':
+      return `${block.heading ?? ''}${(block.items ?? []).map((i) => `${i.title ?? ''}${i.body ?? ''}${i.icon?.alt ?? ''}`).join(',')}`;
+    case 'cta':
+      return `${block.heading ?? ''}${block.body ?? ''}${block.link?.type === 'url' ? block.link.url ?? '' : block.link?.reference?.id ?? ''}`;
+    case 'image':
+      return `<img src="${block.image?.url ?? ''}" alt="${block.image?.alt ?? ''}">${block.caption ?? ''}`;
+    default: {
+      // A block type added to the model and not rendered here fails to compile.
+      const unhandled: never = block;
+      return unhandled;
+    }
+  }
+}
+
+export function renderPage(fields: PageFields): string {
+  return (fields.blocks ?? []).map(renderBlock).join('\n') + (fields.seo?.title ?? '');
+}
+
+export function postCard(post: PostEntry): string {
+  const f = post.fields;
+  return `${post.slug ?? ''} ${f.author ?? ''} ${f.excerpt ?? ''} ${f.cover?.url ?? ''} ${f.publishedAt ?? ''}`;
+}
+
+export function headerMenu(header: Globals['header']): string {
+  const menu = header.menu?.fields;
+  const items = menu && 'items' in menu ? menu.items ?? [] : [];
+  return items.map((i) => i.label ?? '').join(' | ') + (header.cta?.label ?? '');
+}
+
+export const collections: ContentTypeKey[] = ['route', 'page', 'menu', 'post'];
+export const globals: GlobalKey[] = ['site', 'header', 'footer', 'strings'];
+export const sameEntry: ForumulateContent['entries']['post'] extends Entries['post'] ? true : false = true;

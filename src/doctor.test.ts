@@ -452,7 +452,8 @@ describe('a blank api base', () => {
  * silent: every probe 404s and every report says "skip". So the copy is pinned
  * to the declaration it was copied from.
  */
-const DECLARED_IN = path.join(__dirname, '..', '..', 'shared', 'src', 'space-addressing.ts');
+// The declaration moved to a zod-free leaf (913fb7cb8); space-addressing re-exports it.
+const DECLARED_IN = path.join(__dirname, '..', '..', 'shared', 'src', 'reader-api-segment.ts');
 
 /*
  * Skipped only where the declaration is absent: the public mirror of this

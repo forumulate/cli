@@ -23,7 +23,7 @@ const DATED = /^(\d{4}-\d{2}-\d{2})[-_]/;
 const BIG = Number.MAX_SAFE_INTEGER;
 
 /** The product's slug rule (packages/shared `slugify`), mirrored: this package ships alone. */
-export function slugify(input: string, fallback = 'page'): string {
+export function slugify(input: string, fallback = 'page', max = 70): string {
   return (
     input
       .normalize('NFC')
@@ -33,7 +33,7 @@ export function slugify(input: string, fallback = 'page'): string {
       .normalize('NFC')
       .replace(/[^\p{Letter}\p{Number}]+/gu, '-')
       .replace(/^-+|-+$/g, '')
-      .slice(0, 70)
+      .slice(0, max)
       .replace(/-+$/, '') || fallback
   );
 }

@@ -1,0 +1,4 @@
+{ "navItems": [
+  { "id": "n1", "link": { "type": "custom", "label": "Posts", "url": "/posts", "newTab": false } },
+  { "id": "n2", "link": { "type": "custom", "label": "Docs", "url": "https://example.com/docs", "newTab": true } }
+] }

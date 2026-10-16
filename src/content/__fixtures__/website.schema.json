@@ -1,0 +1,2550 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://forumulate.test/api/delivery/v1/libraries/00000000-0000-4000-8000-0000000000aa/schema.json",
+  "title": "Content library model",
+  "description": "The delivery JSON Schema of this content library: `type.<key>` is a content type’s `fields`, `entry.<key>` the entry around them, `block.<key>` a block type. Objects are open: during a field rename a site sees both keys.",
+  "$defs": {
+    "type.route": {
+      "title": "Route",
+      "type": "object",
+      "additionalProperties": true,
+      "properties": {
+        "path": {
+          "description": "Path",
+          "type": "string",
+          "maxLength": 500,
+          "pattern": "^(?!.*//)/(?:[^\\s?#]*[^\\s?#/])?$"
+        },
+        "entry": {
+          "description": "Shows",
+          "type": [
+            "object",
+            "null"
+          ],
+          "additionalProperties": true,
+          "required": [
+            "kind",
+            "id"
+          ],
+          "properties": {
+            "kind": {
+              "type": "string",
+              "enum": [
+                "entry"
+              ]
+            },
+            "id": {
+              "type": "string"
+            },
+            "contentType": {
+              "type": "string",
+              "enum": [
+                "page",
+                "post"
+              ]
+            },
+            "slug": {
+              "type": "string"
+            },
+            "fields": {
+              "anyOf": [
+                {
+                  "$ref": "#/$defs/type.page"
+                },
+                {
+                  "$ref": "#/$defs/type.post"
+                }
+              ]
+            }
+          }
+        },
+        "seo": {
+          "description": "Overrides the entry's own SEO on this path.",
+          "type": "object",
+          "additionalProperties": true,
+          "properties": {
+            "title": {
+              "type": "string"
+            },
+            "description": {
+              "type": "string"
+            },
+            "image": {
+              "type": [
+                "object",
+                "null"
+              ],
+              "additionalProperties": true,
+              "required": [
+                "assetId",
+                "url"
+              ],
+              "properties": {
+                "assetId": {
+                  "type": "string",
+                  "format": "uuid"
+                },
+                "url": {
+                  "type": "string",
+                  "format": "uri"
+                },
+                "width": {
+                  "type": [
+                    "integer",
+                    "null"
+                  ]
+                },
+                "height": {
+                  "type": [
+                    "integer",
+                    "null"
+                  ]
+                },
+                "alt": {
+                  "type": "string"
+                },
+                "caption": {
+                  "type": [
+                    "string",
+                    "null"
+                  ]
+                },
+                "focal": {
+                  "type": [
+                    "object",
+                    "null"
+                  ],
+                  "required": [
+                    "x",
+                    "y"
+                  ],
+                  "properties": {
+                    "x": {
+                      "type": "number"
+                    },
+                    "y": {
+                      "type": "number"
+                    }
+                  }
+                },
+                "blurDataURL": {
+                  "type": [
+                    "string",
+                    "null"
+                  ]
+                },
+                "placeholder": {
+                  "type": [
+                    "string",
+                    "null"
+                  ],
+                  "description": "A dominant colour to paint while the picture loads."
+                },
+                "contentType": {
+                  "type": "string"
+                },
+                "variants": {
+                  "type": "object",
+                  "additionalProperties": {
+                    "type": "string",
+                    "format": "uri"
+                  }
+                }
+              }
+            },
+            "noindex": {
+              "type": "boolean"
+            },
+            "canonical": {
+              "type": "string",
+              "format": "uri"
+            }
+          }
+        },
+        "layout": {
+          "description": "Layout",
+          "default": "default",
+          "type": "string",
+          "enum": [
+            "default",
+            "wide",
+            "landing"
+          ]
+        },
+        "status": {
+          "description": "A disabled route stops resolving without losing its entry or its history.",
+          "default": "active",
+          "type": "string",
+          "enum": [
+            "active",
+            "disabled"
+          ]
+        }
+      }
+    },
+    "type.page": {
+      "title": "Page",
+      "type": "object",
+      "additionalProperties": true,
+      "properties": {
+        "blocks": {
+          "description": "Content",
+          "type": "array",
+          "items": {
+            "oneOf": [
+              {
+                "$ref": "#/$defs/block.hero"
+              },
+              {
+                "$ref": "#/$defs/block.text"
+              },
+              {
+                "$ref": "#/$defs/block.features"
+              },
+              {
+                "$ref": "#/$defs/block.cta"
+              },
+              {
+                "$ref": "#/$defs/block.image"
+              }
+            ]
+          },
+          "maxItems": 200
+        },
+        "seo": {
+          "description": "SEO",
+          "type": "object",
+          "additionalProperties": true,
+          "properties": {
+            "title": {
+              "type": "string"
+            },
+            "description": {
+              "type": "string"
+            },
+            "image": {
+              "type": [
+                "object",
+                "null"
+              ],
+              "additionalProperties": true,
+              "required": [
+                "assetId",
+                "url"
+              ],
+              "properties": {
+                "assetId": {
+                  "type": "string",
+                  "format": "uuid"
+                },
+                "url": {
+                  "type": "string",
+                  "format": "uri"
+                },
+                "width": {
+                  "type": [
+                    "integer",
+                    "null"
+                  ]
+                },
+                "height": {
+                  "type": [
+                    "integer",
+                    "null"
+                  ]
+                },
+                "alt": {
+                  "type": "string"
+                },
+                "caption": {
+                  "type": [
+                    "string",
+                    "null"
+                  ]
+                },
+                "focal": {
+                  "type": [
+                    "object",
+                    "null"
+                  ],
+                  "required": [
+                    "x",
+                    "y"
+                  ],
+                  "properties": {
+                    "x": {
+                      "type": "number"
+                    },
+                    "y": {
+                      "type": "number"
+                    }
+                  }
+                },
+                "blurDataURL": {
+                  "type": [
+                    "string",
+                    "null"
+                  ]
+                },
+                "placeholder": {
+                  "type": [
+                    "string",
+                    "null"
+                  ],
+                  "description": "A dominant colour to paint while the picture loads."
+                },
+                "contentType": {
+                  "type": "string"
+                },
+                "variants": {
+                  "type": "object",
+                  "additionalProperties": {
+                    "type": "string",
+                    "format": "uri"
+                  }
+                }
+              }
+            },
+            "noindex": {
+              "type": "boolean"
+            },
+            "canonical": {
+              "type": "string",
+              "format": "uri"
+            }
+          }
+        }
+      }
+    },
+    "type.menu": {
+      "title": "Menu",
+      "type": "object",
+      "additionalProperties": true,
+      "properties": {
+        "items": {
+          "description": "Items",
+          "type": "array",
+          "items": {
+            "type": "object",
+            "additionalProperties": true,
+            "properties": {
+              "id": {
+                "type": "string"
+              },
+              "label": {
+                "description": "Label",
+                "type": "string"
+              },
+              "link": {
+                "description": "Link",
+                "type": "object",
+                "additionalProperties": true,
+                "required": [
+                  "type"
+                ],
+                "properties": {
+                  "type": {
+                    "type": "string",
+                    "enum": [
+                      "reference",
+                      "url"
+                    ]
+                  },
+                  "reference": {
+                    "type": [
+                      "object",
+                      "null"
+                    ],
+                    "additionalProperties": true,
+                    "required": [
+                      "kind",
+                      "id"
+                    ],
+                    "properties": {
+                      "kind": {
+                        "type": "string",
+                        "enum": [
+                          "entry",
+                          "page",
+                          "post",
+                          "release",
+                          "topic",
+                          "form",
+                          "asset",
+                          "statusComponent"
+                        ]
+                      },
+                      "id": {
+                        "type": "string"
+                      },
+                      "contentType": {
+                        "type": "string"
+                      },
+                      "slug": {
+                        "type": "string"
+                      }
+                    }
+                  },
+                  "url": {
+                    "type": "string"
+                  },
+                  "label": {
+                    "type": "string"
+                  },
+                  "newTab": {
+                    "type": "boolean"
+                  }
+                }
+              },
+              "children": {
+                "description": "Children",
+                "type": "array",
+                "items": {
+                  "type": "object",
+                  "additionalProperties": true,
+                  "properties": {
+                    "id": {
+                      "type": "string"
+                    },
+                    "label": {
+                      "description": "Label",
+                      "type": "string"
+                    },
+                    "link": {
+                      "description": "Link",
+                      "type": "object",
+                      "additionalProperties": true,
+                      "required": [
+                        "type"
+                      ],
+                      "properties": {
+                        "type": {
+                          "type": "string",
+                          "enum": [
+                            "reference",
+                            "url"
+                          ]
+                        },
+                        "reference": {
+                          "type": [
+                            "object",
+                            "null"
+                          ],
+                          "additionalProperties": true,
+                          "required": [
+                            "kind",
+                            "id"
+                          ],
+                          "properties": {
+                            "kind": {
+                              "type": "string",
+                              "enum": [
+                                "entry",
+                                "page",
+                                "post",
+                                "release",
+                                "topic",
+                                "form",
+                                "asset",
+                                "statusComponent"
+                              ]
+                            },
+                            "id": {
+                              "type": "string"
+                            },
+                            "contentType": {
+                              "type": "string"
+                            },
+                            "slug": {
+                              "type": "string"
+                            }
+                          }
+                        },
+                        "url": {
+                          "type": "string"
+                        },
+                        "label": {
+                          "type": "string"
+                        },
+                        "newTab": {
+                          "type": "boolean"
+                        }
+                      }
+                    },
+                    "children": {
+                      "description": "Children",
+                      "type": "array",
+                      "items": {
+                        "type": "object",
+                        "additionalProperties": true,
+                        "properties": {
+                          "id": {
+                            "type": "string"
+                          },
+                          "label": {
+                            "description": "Label",
+                            "type": "string"
+                          },
+                          "link": {
+                            "description": "Link",
+                            "type": "object",
+                            "additionalProperties": true,
+                            "required": [
+                              "type"
+                            ],
+                            "properties": {
+                              "type": {
+                                "type": "string",
+                                "enum": [
+                                  "reference",
+                                  "url"
+                                ]
+                              },
+                              "reference": {
+                                "type": [
+                                  "object",
+                                  "null"
+                                ],
+                                "additionalProperties": true,
+                                "required": [
+                                  "kind",
+                                  "id"
+                                ],
+                                "properties": {
+                                  "kind": {
+                                    "type": "string",
+                                    "enum": [
+                                      "entry",
+                                      "page",
+                                      "post",
+                                      "release",
+                                      "topic",
+                                      "form",
+                                      "asset",
+                                      "statusComponent"
+                                    ]
+                                  },
+                                  "id": {
+                                    "type": "string"
+                                  },
+                                  "contentType": {
+                                    "type": "string"
+                                  },
+                                  "slug": {
+                                    "type": "string"
+                                  }
+                                }
+                              },
+                              "url": {
+                                "type": "string"
+                              },
+                              "label": {
+                                "type": "string"
+                              },
+                              "newTab": {
+                                "type": "boolean"
+                              }
+                            }
+                          }
+                        }
+                      },
+                      "maxItems": 200
+                    }
+                  }
+                },
+                "maxItems": 200
+              }
+            }
+          },
+          "maxItems": 200
+        }
+      }
+    },
+    "type.post": {
+      "title": "Post",
+      "type": "object",
+      "additionalProperties": true,
+      "properties": {
+        "publishedAt": {
+          "description": "Published",
+          "type": "string",
+          "format": "date-time"
+        },
+        "author": {
+          "description": "Author",
+          "type": "string"
+        },
+        "excerpt": {
+          "description": "Excerpt",
+          "type": "string",
+          "maxLength": 400
+        },
+        "cover": {
+          "description": "Cover image",
+          "type": [
+            "object",
+            "null"
+          ],
+          "additionalProperties": true,
+          "required": [
+            "assetId",
+            "url"
+          ],
+          "properties": {
+            "assetId": {
+              "type": "string",
+              "format": "uuid"
+            },
+            "url": {
+              "type": "string",
+              "format": "uri"
+            },
+            "width": {
+              "type": [
+                "integer",
+                "null"
+              ]
+            },
+            "height": {
+              "type": [
+                "integer",
+                "null"
+              ]
+            },
+            "alt": {
+              "type": "string"
+            },
+            "caption": {
+              "type": [
+                "string",
+                "null"
+              ]
+            },
+            "focal": {
+              "type": [
+                "object",
+                "null"
+              ],
+              "required": [
+                "x",
+                "y"
+              ],
+              "properties": {
+                "x": {
+                  "type": "number"
+                },
+                "y": {
+                  "type": "number"
+                }
+              }
+            },
+            "blurDataURL": {
+              "type": [
+                "string",
+                "null"
+              ]
+            },
+            "placeholder": {
+              "type": [
+                "string",
+                "null"
+              ],
+              "description": "A dominant colour to paint while the picture loads."
+            },
+            "contentType": {
+              "type": "string"
+            },
+            "variants": {
+              "type": "object",
+              "additionalProperties": {
+                "type": "string",
+                "format": "uri"
+              }
+            }
+          }
+        },
+        "body": {
+          "description": "Body",
+          "type": "object",
+          "additionalProperties": true,
+          "required": [
+            "type"
+          ],
+          "properties": {
+            "type": {
+              "const": "doc"
+            },
+            "content": {
+              "type": "array"
+            }
+          }
+        },
+        "seo": {
+          "description": "SEO",
+          "type": "object",
+          "additionalProperties": true,
+          "properties": {
+            "title": {
+              "type": "string"
+            },
+            "description": {
+              "type": "string"
+            },
+            "image": {
+              "type": [
+                "object",
+                "null"
+              ],
+              "additionalProperties": true,
+              "required": [
+                "assetId",
+                "url"
+              ],
+              "properties": {
+                "assetId": {
+                  "type": "string",
+                  "format": "uuid"
+                },
+                "url": {
+                  "type": "string",
+                  "format": "uri"
+                },
+                "width": {
+                  "type": [
+                    "integer",
+                    "null"
+                  ]
+                },
+                "height": {
+                  "type": [
+                    "integer",
+                    "null"
+                  ]
+                },
+                "alt": {
+                  "type": "string"
+                },
+                "caption": {
+                  "type": [
+                    "string",
+                    "null"
+                  ]
+                },
+                "focal": {
+                  "type": [
+                    "object",
+                    "null"
+                  ],
+                  "required": [
+                    "x",
+                    "y"
+                  ],
+                  "properties": {
+                    "x": {
+                      "type": "number"
+                    },
+                    "y": {
+                      "type": "number"
+                    }
+                  }
+                },
+                "blurDataURL": {
+                  "type": [
+                    "string",
+                    "null"
+                  ]
+                },
+                "placeholder": {
+                  "type": [
+                    "string",
+                    "null"
+                  ],
+                  "description": "A dominant colour to paint while the picture loads."
+                },
+                "contentType": {
+                  "type": "string"
+                },
+                "variants": {
+                  "type": "object",
+                  "additionalProperties": {
+                    "type": "string",
+                    "format": "uri"
+                  }
+                }
+              }
+            },
+            "noindex": {
+              "type": "boolean"
+            },
+            "canonical": {
+              "type": "string",
+              "format": "uri"
+            }
+          }
+        }
+      }
+    },
+    "type.site": {
+      "title": "Site settings",
+      "type": "object",
+      "additionalProperties": true,
+      "properties": {
+        "name": {
+          "description": "Site name",
+          "type": "string"
+        },
+        "logo": {
+          "description": "Logo",
+          "type": [
+            "object",
+            "null"
+          ],
+          "additionalProperties": true,
+          "required": [
+            "assetId",
+            "url"
+          ],
+          "properties": {
+            "assetId": {
+              "type": "string",
+              "format": "uuid"
+            },
+            "url": {
+              "type": "string",
+              "format": "uri"
+            },
+            "width": {
+              "type": [
+                "integer",
+                "null"
+              ]
+            },
+            "height": {
+              "type": [
+                "integer",
+                "null"
+              ]
+            },
+            "alt": {
+              "type": "string"
+            },
+            "caption": {
+              "type": [
+                "string",
+                "null"
+              ]
+            },
+            "focal": {
+              "type": [
+                "object",
+                "null"
+              ],
+              "required": [
+                "x",
+                "y"
+              ],
+              "properties": {
+                "x": {
+                  "type": "number"
+                },
+                "y": {
+                  "type": "number"
+                }
+              }
+            },
+            "blurDataURL": {
+              "type": [
+                "string",
+                "null"
+              ]
+            },
+            "placeholder": {
+              "type": [
+                "string",
+                "null"
+              ],
+              "description": "A dominant colour to paint while the picture loads."
+            },
+            "contentType": {
+              "type": "string"
+            },
+            "variants": {
+              "type": "object",
+              "additionalProperties": {
+                "type": "string",
+                "format": "uri"
+              }
+            }
+          }
+        },
+        "favicon": {
+          "description": "Favicon",
+          "type": [
+            "object",
+            "null"
+          ],
+          "additionalProperties": true,
+          "required": [
+            "assetId",
+            "url"
+          ],
+          "properties": {
+            "assetId": {
+              "type": "string",
+              "format": "uuid"
+            },
+            "url": {
+              "type": "string",
+              "format": "uri"
+            },
+            "width": {
+              "type": [
+                "integer",
+                "null"
+              ]
+            },
+            "height": {
+              "type": [
+                "integer",
+                "null"
+              ]
+            },
+            "alt": {
+              "type": "string"
+            },
+            "caption": {
+              "type": [
+                "string",
+                "null"
+              ]
+            },
+            "focal": {
+              "type": [
+                "object",
+                "null"
+              ],
+              "required": [
+                "x",
+                "y"
+              ],
+              "properties": {
+                "x": {
+                  "type": "number"
+                },
+                "y": {
+                  "type": "number"
+                }
+              }
+            },
+            "blurDataURL": {
+              "type": [
+                "string",
+                "null"
+              ]
+            },
+            "placeholder": {
+              "type": [
+                "string",
+                "null"
+              ],
+              "description": "A dominant colour to paint while the picture loads."
+            },
+            "contentType": {
+              "type": "string"
+            },
+            "variants": {
+              "type": "object",
+              "additionalProperties": {
+                "type": "string",
+                "format": "uri"
+              }
+            }
+          }
+        },
+        "social": {
+          "description": "Social links",
+          "type": "array",
+          "items": {
+            "type": "object",
+            "additionalProperties": true,
+            "properties": {
+              "id": {
+                "type": "string"
+              },
+              "network": {
+                "description": "Network",
+                "type": "string"
+              },
+              "url": {
+                "description": "URL",
+                "type": "string",
+                "format": "uri"
+              }
+            }
+          },
+          "maxItems": 200
+        },
+        "seo": {
+          "description": "Default SEO",
+          "type": "object",
+          "additionalProperties": true,
+          "properties": {
+            "title": {
+              "type": "string"
+            },
+            "description": {
+              "type": "string"
+            },
+            "image": {
+              "type": [
+                "object",
+                "null"
+              ],
+              "additionalProperties": true,
+              "required": [
+                "assetId",
+                "url"
+              ],
+              "properties": {
+                "assetId": {
+                  "type": "string",
+                  "format": "uuid"
+                },
+                "url": {
+                  "type": "string",
+                  "format": "uri"
+                },
+                "width": {
+                  "type": [
+                    "integer",
+                    "null"
+                  ]
+                },
+                "height": {
+                  "type": [
+                    "integer",
+                    "null"
+                  ]
+                },
+                "alt": {
+                  "type": "string"
+                },
+                "caption": {
+                  "type": [
+                    "string",
+                    "null"
+                  ]
+                },
+                "focal": {
+                  "type": [
+                    "object",
+                    "null"
+                  ],
+                  "required": [
+                    "x",
+                    "y"
+                  ],
+                  "properties": {
+                    "x": {
+                      "type": "number"
+                    },
+                    "y": {
+                      "type": "number"
+                    }
+                  }
+                },
+                "blurDataURL": {
+                  "type": [
+                    "string",
+                    "null"
+                  ]
+                },
+                "placeholder": {
+                  "type": [
+                    "string",
+                    "null"
+                  ],
+                  "description": "A dominant colour to paint while the picture loads."
+                },
+                "contentType": {
+                  "type": "string"
+                },
+                "variants": {
+                  "type": "object",
+                  "additionalProperties": {
+                    "type": "string",
+                    "format": "uri"
+                  }
+                }
+              }
+            },
+            "noindex": {
+              "type": "boolean"
+            },
+            "canonical": {
+              "type": "string",
+              "format": "uri"
+            }
+          }
+        },
+        "announcement": {
+          "description": "Announcement bar",
+          "type": "object",
+          "additionalProperties": true,
+          "properties": {
+            "enabled": {
+              "description": "Show it",
+              "default": false,
+              "type": "boolean"
+            },
+            "message": {
+              "description": "Message",
+              "type": "string"
+            },
+            "link": {
+              "description": "Link",
+              "type": "object",
+              "additionalProperties": true,
+              "required": [
+                "type"
+              ],
+              "properties": {
+                "type": {
+                  "type": "string",
+                  "enum": [
+                    "reference",
+                    "url"
+                  ]
+                },
+                "reference": {
+                  "type": [
+                    "object",
+                    "null"
+                  ],
+                  "additionalProperties": true,
+                  "required": [
+                    "kind",
+                    "id"
+                  ],
+                  "properties": {
+                    "kind": {
+                      "type": "string",
+                      "enum": [
+                        "entry",
+                        "page",
+                        "post",
+                        "release",
+                        "topic",
+                        "form",
+                        "asset",
+                        "statusComponent"
+                      ]
+                    },
+                    "id": {
+                      "type": "string"
+                    },
+                    "contentType": {
+                      "type": "string"
+                    },
+                    "slug": {
+                      "type": "string"
+                    }
+                  }
+                },
+                "url": {
+                  "type": "string"
+                },
+                "label": {
+                  "type": "string"
+                },
+                "newTab": {
+                  "type": "boolean"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "type.header": {
+      "title": "Header",
+      "type": "object",
+      "additionalProperties": true,
+      "properties": {
+        "menu": {
+          "description": "Menu",
+          "type": [
+            "object",
+            "null"
+          ],
+          "additionalProperties": true,
+          "required": [
+            "kind",
+            "id"
+          ],
+          "properties": {
+            "kind": {
+              "type": "string",
+              "enum": [
+                "entry"
+              ]
+            },
+            "id": {
+              "type": "string"
+            },
+            "contentType": {
+              "type": "string",
+              "enum": [
+                "menu"
+              ]
+            },
+            "slug": {
+              "type": "string"
+            },
+            "fields": {
+              "$ref": "#/$defs/type.menu"
+            }
+          }
+        },
+        "cta": {
+          "description": "Button",
+          "type": "object",
+          "additionalProperties": true,
+          "required": [
+            "type"
+          ],
+          "properties": {
+            "type": {
+              "type": "string",
+              "enum": [
+                "reference",
+                "url"
+              ]
+            },
+            "reference": {
+              "type": [
+                "object",
+                "null"
+              ],
+              "additionalProperties": true,
+              "required": [
+                "kind",
+                "id"
+              ],
+              "properties": {
+                "kind": {
+                  "type": "string",
+                  "enum": [
+                    "entry",
+                    "page",
+                    "post",
+                    "release",
+                    "topic",
+                    "form",
+                    "asset",
+                    "statusComponent"
+                  ]
+                },
+                "id": {
+                  "type": "string"
+                },
+                "contentType": {
+                  "type": "string"
+                },
+                "slug": {
+                  "type": "string"
+                }
+              }
+            },
+            "url": {
+              "type": "string"
+            },
+            "label": {
+              "type": "string"
+            },
+            "newTab": {
+              "type": "boolean"
+            }
+          }
+        }
+      }
+    },
+    "type.footer": {
+      "title": "Footer",
+      "type": "object",
+      "additionalProperties": true,
+      "properties": {
+        "menu": {
+          "description": "Menu",
+          "type": [
+            "object",
+            "null"
+          ],
+          "additionalProperties": true,
+          "required": [
+            "kind",
+            "id"
+          ],
+          "properties": {
+            "kind": {
+              "type": "string",
+              "enum": [
+                "entry"
+              ]
+            },
+            "id": {
+              "type": "string"
+            },
+            "contentType": {
+              "type": "string",
+              "enum": [
+                "menu"
+              ]
+            },
+            "slug": {
+              "type": "string"
+            },
+            "fields": {
+              "$ref": "#/$defs/type.menu"
+            }
+          }
+        },
+        "note": {
+          "description": "Small print",
+          "type": "string"
+        },
+        "copyright": {
+          "description": "Copyright",
+          "type": "string"
+        }
+      }
+    },
+    "type.strings": {
+      "title": "Strings",
+      "type": "object",
+      "additionalProperties": true,
+      "properties": {
+        "strings": {
+          "description": "Strings",
+          "type": "array",
+          "items": {
+            "type": "object",
+            "additionalProperties": true,
+            "properties": {
+              "id": {
+                "type": "string"
+              },
+              "key": {
+                "description": "Key",
+                "type": "string"
+              },
+              "value": {
+                "description": "Text",
+                "type": "string"
+              }
+            }
+          },
+          "maxItems": 200
+        }
+      }
+    },
+    "block.hero": {
+      "title": "Hero",
+      "type": "object",
+      "additionalProperties": true,
+      "properties": {
+        "id": {
+          "type": "string"
+        },
+        "blockType": {
+          "const": "hero"
+        },
+        "variant": {
+          "type": "string",
+          "enum": [
+            "centered",
+            "split"
+          ]
+        },
+        "heading": {
+          "description": "Heading",
+          "type": "string"
+        },
+        "subheading": {
+          "description": "Subheading",
+          "type": "string"
+        },
+        "image": {
+          "description": "Image",
+          "type": [
+            "object",
+            "null"
+          ],
+          "additionalProperties": true,
+          "required": [
+            "assetId",
+            "url"
+          ],
+          "properties": {
+            "assetId": {
+              "type": "string",
+              "format": "uuid"
+            },
+            "url": {
+              "type": "string",
+              "format": "uri"
+            },
+            "width": {
+              "type": [
+                "integer",
+                "null"
+              ]
+            },
+            "height": {
+              "type": [
+                "integer",
+                "null"
+              ]
+            },
+            "alt": {
+              "type": "string"
+            },
+            "caption": {
+              "type": [
+                "string",
+                "null"
+              ]
+            },
+            "focal": {
+              "type": [
+                "object",
+                "null"
+              ],
+              "required": [
+                "x",
+                "y"
+              ],
+              "properties": {
+                "x": {
+                  "type": "number"
+                },
+                "y": {
+                  "type": "number"
+                }
+              }
+            },
+            "blurDataURL": {
+              "type": [
+                "string",
+                "null"
+              ]
+            },
+            "placeholder": {
+              "type": [
+                "string",
+                "null"
+              ],
+              "description": "A dominant colour to paint while the picture loads."
+            },
+            "contentType": {
+              "type": "string"
+            },
+            "variants": {
+              "type": "object",
+              "additionalProperties": {
+                "type": "string",
+                "format": "uri"
+              }
+            }
+          }
+        },
+        "ctas": {
+          "description": "Buttons",
+          "type": "array",
+          "items": {
+            "type": "object",
+            "additionalProperties": true,
+            "properties": {
+              "id": {
+                "type": "string"
+              },
+              "label": {
+                "description": "Label",
+                "type": "string"
+              },
+              "link": {
+                "description": "Link",
+                "type": "object",
+                "additionalProperties": true,
+                "required": [
+                  "type"
+                ],
+                "properties": {
+                  "type": {
+                    "type": "string",
+                    "enum": [
+                      "reference",
+                      "url"
+                    ]
+                  },
+                  "reference": {
+                    "type": [
+                      "object",
+                      "null"
+                    ],
+                    "additionalProperties": true,
+                    "required": [
+                      "kind",
+                      "id"
+                    ],
+                    "properties": {
+                      "kind": {
+                        "type": "string",
+                        "enum": [
+                          "entry",
+                          "page",
+                          "post",
+                          "release",
+                          "topic",
+                          "form",
+                          "asset",
+                          "statusComponent"
+                        ]
+                      },
+                      "id": {
+                        "type": "string"
+                      },
+                      "contentType": {
+                        "type": "string"
+                      },
+                      "slug": {
+                        "type": "string"
+                      }
+                    }
+                  },
+                  "url": {
+                    "type": "string"
+                  },
+                  "label": {
+                    "type": "string"
+                  },
+                  "newTab": {
+                    "type": "boolean"
+                  }
+                }
+              }
+            }
+          },
+          "maxItems": 3
+        }
+      },
+      "required": [
+        "id",
+        "blockType"
+      ]
+    },
+    "block.text": {
+      "title": "Text",
+      "type": "object",
+      "additionalProperties": true,
+      "properties": {
+        "id": {
+          "type": "string"
+        },
+        "blockType": {
+          "const": "text"
+        },
+        "body": {
+          "description": "Body",
+          "type": "object",
+          "additionalProperties": true,
+          "required": [
+            "type"
+          ],
+          "properties": {
+            "type": {
+              "const": "doc"
+            },
+            "content": {
+              "type": "array"
+            }
+          }
+        }
+      },
+      "required": [
+        "id",
+        "blockType"
+      ]
+    },
+    "block.features": {
+      "title": "Features",
+      "type": "object",
+      "additionalProperties": true,
+      "properties": {
+        "id": {
+          "type": "string"
+        },
+        "blockType": {
+          "const": "features"
+        },
+        "heading": {
+          "description": "Heading",
+          "type": "string"
+        },
+        "items": {
+          "description": "Features",
+          "type": "array",
+          "items": {
+            "type": "object",
+            "additionalProperties": true,
+            "properties": {
+              "id": {
+                "type": "string"
+              },
+              "title": {
+                "description": "Title",
+                "type": "string"
+              },
+              "body": {
+                "description": "Body",
+                "type": "string"
+              },
+              "icon": {
+                "description": "Icon",
+                "type": [
+                  "object",
+                  "null"
+                ],
+                "additionalProperties": true,
+                "required": [
+                  "assetId",
+                  "url"
+                ],
+                "properties": {
+                  "assetId": {
+                    "type": "string",
+                    "format": "uuid"
+                  },
+                  "url": {
+                    "type": "string",
+                    "format": "uri"
+                  },
+                  "width": {
+                    "type": [
+                      "integer",
+                      "null"
+                    ]
+                  },
+                  "height": {
+                    "type": [
+                      "integer",
+                      "null"
+                    ]
+                  },
+                  "alt": {
+                    "type": "string"
+                  },
+                  "caption": {
+                    "type": [
+                      "string",
+                      "null"
+                    ]
+                  },
+                  "focal": {
+                    "type": [
+                      "object",
+                      "null"
+                    ],
+                    "required": [
+                      "x",
+                      "y"
+                    ],
+                    "properties": {
+                      "x": {
+                        "type": "number"
+                      },
+                      "y": {
+                        "type": "number"
+                      }
+                    }
+                  },
+                  "blurDataURL": {
+                    "type": [
+                      "string",
+                      "null"
+                    ]
+                  },
+                  "placeholder": {
+                    "type": [
+                      "string",
+                      "null"
+                    ],
+                    "description": "A dominant colour to paint while the picture loads."
+                  },
+                  "contentType": {
+                    "type": "string"
+                  },
+                  "variants": {
+                    "type": "object",
+                    "additionalProperties": {
+                      "type": "string",
+                      "format": "uri"
+                    }
+                  }
+                }
+              }
+            }
+          },
+          "maxItems": 200
+        }
+      },
+      "required": [
+        "id",
+        "blockType"
+      ]
+    },
+    "block.cta": {
+      "title": "Call to action",
+      "type": "object",
+      "additionalProperties": true,
+      "properties": {
+        "id": {
+          "type": "string"
+        },
+        "blockType": {
+          "const": "cta"
+        },
+        "heading": {
+          "description": "Heading",
+          "type": "string"
+        },
+        "body": {
+          "description": "Body",
+          "type": "string"
+        },
+        "link": {
+          "description": "Button",
+          "type": "object",
+          "additionalProperties": true,
+          "required": [
+            "type"
+          ],
+          "properties": {
+            "type": {
+              "type": "string",
+              "enum": [
+                "reference",
+                "url"
+              ]
+            },
+            "reference": {
+              "type": [
+                "object",
+                "null"
+              ],
+              "additionalProperties": true,
+              "required": [
+                "kind",
+                "id"
+              ],
+              "properties": {
+                "kind": {
+                  "type": "string",
+                  "enum": [
+                    "entry",
+                    "page",
+                    "post",
+                    "release",
+                    "topic",
+                    "form",
+                    "asset",
+                    "statusComponent"
+                  ]
+                },
+                "id": {
+                  "type": "string"
+                },
+                "contentType": {
+                  "type": "string"
+                },
+                "slug": {
+                  "type": "string"
+                }
+              }
+            },
+            "url": {
+              "type": "string"
+            },
+            "label": {
+              "type": "string"
+            },
+            "newTab": {
+              "type": "boolean"
+            }
+          }
+        }
+      },
+      "required": [
+        "id",
+        "blockType"
+      ]
+    },
+    "block.image": {
+      "title": "Image",
+      "type": "object",
+      "additionalProperties": true,
+      "properties": {
+        "id": {
+          "type": "string"
+        },
+        "blockType": {
+          "const": "image"
+        },
+        "image": {
+          "description": "Image",
+          "type": [
+            "object",
+            "null"
+          ],
+          "additionalProperties": true,
+          "required": [
+            "assetId",
+            "url"
+          ],
+          "properties": {
+            "assetId": {
+              "type": "string",
+              "format": "uuid"
+            },
+            "url": {
+              "type": "string",
+              "format": "uri"
+            },
+            "width": {
+              "type": [
+                "integer",
+                "null"
+              ]
+            },
+            "height": {
+              "type": [
+                "integer",
+                "null"
+              ]
+            },
+            "alt": {
+              "type": "string"
+            },
+            "caption": {
+              "type": [
+                "string",
+                "null"
+              ]
+            },
+            "focal": {
+              "type": [
+                "object",
+                "null"
+              ],
+              "required": [
+                "x",
+                "y"
+              ],
+              "properties": {
+                "x": {
+                  "type": "number"
+                },
+                "y": {
+                  "type": "number"
+                }
+              }
+            },
+            "blurDataURL": {
+              "type": [
+                "string",
+                "null"
+              ]
+            },
+            "placeholder": {
+              "type": [
+                "string",
+                "null"
+              ],
+              "description": "A dominant colour to paint while the picture loads."
+            },
+            "contentType": {
+              "type": "string"
+            },
+            "variants": {
+              "type": "object",
+              "additionalProperties": {
+                "type": "string",
+                "format": "uri"
+              }
+            }
+          }
+        },
+        "caption": {
+          "description": "Caption",
+          "type": "string"
+        }
+      },
+      "required": [
+        "id",
+        "blockType"
+      ]
+    },
+    "entry.route": {
+      "type": "object",
+      "title": "Route",
+      "description": "One `route` entry as the delivery API serves it.",
+      "additionalProperties": true,
+      "required": [
+        "id",
+        "type",
+        "locale",
+        "status",
+        "fields",
+        "_links"
+      ],
+      "properties": {
+        "id": {
+          "type": "string",
+          "format": "uuid"
+        },
+        "type": {
+          "const": "route"
+        },
+        "slug": {
+          "type": [
+            "string",
+            "null"
+          ]
+        },
+        "title": {
+          "type": "string",
+          "description": "The entry’s title (the published one, on a published read)."
+        },
+        "locale": {
+          "type": "string",
+          "description": "The locale served, as the library spells it."
+        },
+        "status": {
+          "type": "string",
+          "enum": [
+            "published"
+          ]
+        },
+        "publishedAt": {
+          "type": [
+            "string",
+            "null"
+          ],
+          "format": "date-time"
+        },
+        "updatedAt": {
+          "type": "string",
+          "format": "date-time"
+        },
+        "modelVersion": {
+          "type": "integer"
+        },
+        "fields": {
+          "$ref": "#/$defs/type.route"
+        },
+        "route": {
+          "type": [
+            "string",
+            "null"
+          ],
+          "description": "The routed path of the entry, when a route points at it."
+        },
+        "locales": {
+          "type": "array",
+          "items": {
+            "type": "string"
+          }
+        },
+        "_links": {
+          "type": "object",
+          "properties": {
+            "self": {
+              "type": "string"
+            }
+          }
+        }
+      }
+    },
+    "entry.page": {
+      "type": "object",
+      "title": "Page",
+      "description": "One `page` entry as the delivery API serves it.",
+      "additionalProperties": true,
+      "required": [
+        "id",
+        "type",
+        "locale",
+        "status",
+        "fields",
+        "_links"
+      ],
+      "properties": {
+        "id": {
+          "type": "string",
+          "format": "uuid"
+        },
+        "type": {
+          "const": "page"
+        },
+        "slug": {
+          "type": [
+            "string",
+            "null"
+          ]
+        },
+        "title": {
+          "type": "string",
+          "description": "The entry’s title (the published one, on a published read)."
+        },
+        "locale": {
+          "type": "string",
+          "description": "The locale served, as the library spells it."
+        },
+        "status": {
+          "type": "string",
+          "enum": [
+            "published"
+          ]
+        },
+        "publishedAt": {
+          "type": [
+            "string",
+            "null"
+          ],
+          "format": "date-time"
+        },
+        "updatedAt": {
+          "type": "string",
+          "format": "date-time"
+        },
+        "modelVersion": {
+          "type": "integer"
+        },
+        "fields": {
+          "$ref": "#/$defs/type.page"
+        },
+        "route": {
+          "type": [
+            "string",
+            "null"
+          ],
+          "description": "The routed path of the entry, when a route points at it."
+        },
+        "locales": {
+          "type": "array",
+          "items": {
+            "type": "string"
+          }
+        },
+        "_links": {
+          "type": "object",
+          "properties": {
+            "self": {
+              "type": "string"
+            }
+          }
+        }
+      }
+    },
+    "entry.menu": {
+      "type": "object",
+      "title": "Menu",
+      "description": "One `menu` entry as the delivery API serves it.",
+      "additionalProperties": true,
+      "required": [
+        "id",
+        "type",
+        "locale",
+        "status",
+        "fields",
+        "_links"
+      ],
+      "properties": {
+        "id": {
+          "type": "string",
+          "format": "uuid"
+        },
+        "type": {
+          "const": "menu"
+        },
+        "slug": {
+          "type": [
+            "string",
+            "null"
+          ]
+        },
+        "title": {
+          "type": "string",
+          "description": "The entry’s title (the published one, on a published read)."
+        },
+        "locale": {
+          "type": "string",
+          "description": "The locale served, as the library spells it."
+        },
+        "status": {
+          "type": "string",
+          "enum": [
+            "published"
+          ]
+        },
+        "publishedAt": {
+          "type": [
+            "string",
+            "null"
+          ],
+          "format": "date-time"
+        },
+        "updatedAt": {
+          "type": "string",
+          "format": "date-time"
+        },
+        "modelVersion": {
+          "type": "integer"
+        },
+        "fields": {
+          "$ref": "#/$defs/type.menu"
+        },
+        "route": {
+          "type": [
+            "string",
+            "null"
+          ],
+          "description": "The routed path of the entry, when a route points at it."
+        },
+        "locales": {
+          "type": "array",
+          "items": {
+            "type": "string"
+          }
+        },
+        "_links": {
+          "type": "object",
+          "properties": {
+            "self": {
+              "type": "string"
+            }
+          }
+        }
+      }
+    },
+    "entry.post": {
+      "type": "object",
+      "title": "Post",
+      "description": "One `post` entry as the delivery API serves it.",
+      "additionalProperties": true,
+      "required": [
+        "id",
+        "type",
+        "locale",
+        "status",
+        "fields",
+        "_links"
+      ],
+      "properties": {
+        "id": {
+          "type": "string",
+          "format": "uuid"
+        },
+        "type": {
+          "const": "post"
+        },
+        "slug": {
+          "type": [
+            "string",
+            "null"
+          ]
+        },
+        "title": {
+          "type": "string",
+          "description": "The entry’s title (the published one, on a published read)."
+        },
+        "locale": {
+          "type": "string",
+          "description": "The locale served, as the library spells it."
+        },
+        "status": {
+          "type": "string",
+          "enum": [
+            "published"
+          ]
+        },
+        "publishedAt": {
+          "type": [
+            "string",
+            "null"
+          ],
+          "format": "date-time"
+        },
+        "updatedAt": {
+          "type": "string",
+          "format": "date-time"
+        },
+        "modelVersion": {
+          "type": "integer"
+        },
+        "fields": {
+          "$ref": "#/$defs/type.post"
+        },
+        "route": {
+          "type": [
+            "string",
+            "null"
+          ],
+          "description": "The routed path of the entry, when a route points at it."
+        },
+        "locales": {
+          "type": "array",
+          "items": {
+            "type": "string"
+          }
+        },
+        "_links": {
+          "type": "object",
+          "properties": {
+            "self": {
+              "type": "string"
+            }
+          }
+        }
+      }
+    },
+    "entry.site": {
+      "type": "object",
+      "title": "Site settings",
+      "description": "One `site` entry as the delivery API serves it.",
+      "x-forumulate-global": true,
+      "additionalProperties": true,
+      "required": [
+        "id",
+        "type",
+        "locale",
+        "status",
+        "fields",
+        "_links"
+      ],
+      "properties": {
+        "id": {
+          "type": "string",
+          "format": "uuid"
+        },
+        "type": {
+          "const": "site"
+        },
+        "slug": {
+          "type": [
+            "string",
+            "null"
+          ]
+        },
+        "title": {
+          "type": "string",
+          "description": "The entry’s title (the published one, on a published read)."
+        },
+        "locale": {
+          "type": "string",
+          "description": "The locale served, as the library spells it."
+        },
+        "status": {
+          "type": "string",
+          "enum": [
+            "published"
+          ]
+        },
+        "publishedAt": {
+          "type": [
+            "string",
+            "null"
+          ],
+          "format": "date-time"
+        },
+        "updatedAt": {
+          "type": "string",
+          "format": "date-time"
+        },
+        "modelVersion": {
+          "type": "integer"
+        },
+        "fields": {
+          "$ref": "#/$defs/type.site"
+        },
+        "route": {
+          "type": [
+            "string",
+            "null"
+          ],
+          "description": "The routed path of the entry, when a route points at it."
+        },
+        "locales": {
+          "type": "array",
+          "items": {
+            "type": "string"
+          }
+        },
+        "_links": {
+          "type": "object",
+          "properties": {
+            "self": {
+              "type": "string"
+            }
+          }
+        }
+      }
+    },
+    "entry.header": {
+      "type": "object",
+      "title": "Header",
+      "description": "One `header` entry as the delivery API serves it.",
+      "x-forumulate-global": true,
+      "additionalProperties": true,
+      "required": [
+        "id",
+        "type",
+        "locale",
+        "status",
+        "fields",
+        "_links"
+      ],
+      "properties": {
+        "id": {
+          "type": "string",
+          "format": "uuid"
+        },
+        "type": {
+          "const": "header"
+        },
+        "slug": {
+          "type": [
+            "string",
+            "null"
+          ]
+        },
+        "title": {
+          "type": "string",
+          "description": "The entry’s title (the published one, on a published read)."
+        },
+        "locale": {
+          "type": "string",
+          "description": "The locale served, as the library spells it."
+        },
+        "status": {
+          "type": "string",
+          "enum": [
+            "published"
+          ]
+        },
+        "publishedAt": {
+          "type": [
+            "string",
+            "null"
+          ],
+          "format": "date-time"
+        },
+        "updatedAt": {
+          "type": "string",
+          "format": "date-time"
+        },
+        "modelVersion": {
+          "type": "integer"
+        },
+        "fields": {
+          "$ref": "#/$defs/type.header"
+        },
+        "route": {
+          "type": [
+            "string",
+            "null"
+          ],
+          "description": "The routed path of the entry, when a route points at it."
+        },
+        "locales": {
+          "type": "array",
+          "items": {
+            "type": "string"
+          }
+        },
+        "_links": {
+          "type": "object",
+          "properties": {
+            "self": {
+              "type": "string"
+            }
+          }
+        }
+      }
+    },
+    "entry.footer": {
+      "type": "object",
+      "title": "Footer",
+      "description": "One `footer` entry as the delivery API serves it.",
+      "x-forumulate-global": true,
+      "additionalProperties": true,
+      "required": [
+        "id",
+        "type",
+        "locale",
+        "status",
+        "fields",
+        "_links"
+      ],
+      "properties": {
+        "id": {
+          "type": "string",
+          "format": "uuid"
+        },
+        "type": {
+          "const": "footer"
+        },
+        "slug": {
+          "type": [
+            "string",
+            "null"
+          ]
+        },
+        "title": {
+          "type": "string",
+          "description": "The entry’s title (the published one, on a published read)."
+        },
+        "locale": {
+          "type": "string",
+          "description": "The locale served, as the library spells it."
+        },
+        "status": {
+          "type": "string",
+          "enum": [
+            "published"
+          ]
+        },
+        "publishedAt": {
+          "type": [
+            "string",
+            "null"
+          ],
+          "format": "date-time"
+        },
+        "updatedAt": {
+          "type": "string",
+          "format": "date-time"
+        },
+        "modelVersion": {
+          "type": "integer"
+        },
+        "fields": {
+          "$ref": "#/$defs/type.footer"
+        },
+        "route": {
+          "type": [
+            "string",
+            "null"
+          ],
+          "description": "The routed path of the entry, when a route points at it."
+        },
+        "locales": {
+          "type": "array",
+          "items": {
+            "type": "string"
+          }
+        },
+        "_links": {
+          "type": "object",
+          "properties": {
+            "self": {
+              "type": "string"
+            }
+          }
+        }
+      }
+    },
+    "entry.strings": {
+      "type": "object",
+      "title": "Strings",
+      "description": "One `strings` entry as the delivery API serves it.",
+      "x-forumulate-global": true,
+      "additionalProperties": true,
+      "required": [
+        "id",
+        "type",
+        "locale",
+        "status",
+        "fields",
+        "_links"
+      ],
+      "properties": {
+        "id": {
+          "type": "string",
+          "format": "uuid"
+        },
+        "type": {
+          "const": "strings"
+        },
+        "slug": {
+          "type": [
+            "string",
+            "null"
+          ]
+        },
+        "title": {
+          "type": "string",
+          "description": "The entry’s title (the published one, on a published read)."
+        },
+        "locale": {
+          "type": "string",
+          "description": "The locale served, as the library spells it."
+        },
+        "status": {
+          "type": "string",
+          "enum": [
+            "published"
+          ]
+        },
+        "publishedAt": {
+          "type": [
+            "string",
+            "null"
+          ],
+          "format": "date-time"
+        },
+        "updatedAt": {
+          "type": "string",
+          "format": "date-time"
+        },
+        "modelVersion": {
+          "type": "integer"
+        },
+        "fields": {
+          "$ref": "#/$defs/type.strings"
+        },
+        "route": {
+          "type": [
+            "string",
+            "null"
+          ],
+          "description": "The routed path of the entry, when a route points at it."
+        },
+        "locales": {
+          "type": "array",
+          "items": {
+            "type": "string"
+          }
+        },
+        "_links": {
+          "type": "object",
+          "properties": {
+            "self": {
+              "type": "string"
+            }
+          }
+        }
+      }
+    }
+  }
+}

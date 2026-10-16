@@ -1,0 +1,15 @@
+{ "docs": [
+  {
+    "id": 1, "title": "Home", "slug": "home", "_status": "published",
+    "hero": { "type": "highImpact", "media": 1, "richText": { "root": { "type": "root", "children": [{ "type": "heading", "tag": "h1", "children": [{ "type": "text", "text": "Welcome" }] }] } } },
+    "layout": [
+      { "id": "a1", "blockType": "cta", "style": "primary", "richText": { "root": { "type": "root", "children": [{ "type": "paragraph", "children": [{ "type": "text", "text": "Get started" }] }] } } },
+      { "id": "a2", "blockType": "content", "columns": [{ "id": "c1", "size": "half", "richText": { "root": { "type": "root", "children": [{ "type": "paragraph", "children": [{ "type": "text", "text": "Left" }] }] } } }] },
+      { "id": "a3", "blockType": "mediaBlock", "media": 2 },
+      { "id": "a4", "blockType": "archive", "limit": 3 }
+    ],
+    "meta": { "title": "Home | Site", "description": "The home page" },
+    "publishedAt": "2025-01-15T00:00:00.000Z",
+    "legacyFlag": true
+  }
+] }

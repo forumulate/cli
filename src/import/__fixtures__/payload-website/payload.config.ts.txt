@@ -1,0 +1,115 @@
+// Modelled on Payload's templates/website: pages with a hero and layout blocks,
+// posts with related posts and categories, an upload collection, an auth
+// collection, header/footer globals, and the code (hooks, access) beside the data.
+import { buildConfig } from 'payload'
+import { postgresAdapter } from '@payloadcms/db-postgres'
+import { lexicalEditor } from '@payloadcms/richtext-lexical'
+import { authenticated } from './access/authenticated'
+import { revalidatePage } from './hooks/revalidatePage'
+
+const CallToAction = {
+  slug: 'cta',
+  fields: [
+    { name: 'richText', type: 'richText', editor: lexicalEditor({}) },
+    { name: 'style', type: 'radio', options: [{ label: 'Primary', value: 'primary' }, 'secondary'] },
+  ],
+}
+
+const Content = {
+  slug: 'content',
+  fields: [
+    { name: 'columns', type: 'array', fields: [
+      { name: 'size', type: 'select', options: ['oneThird', 'half', 'full'] },
+      { name: 'richText', type: 'richText' },
+    ] },
+  ],
+}
+
+const MediaBlock = {
+  slug: 'mediaBlock',
+  fields: [{ name: 'media', type: 'upload', relationTo: 'media', required: true }],
+}
+
+const Pages = {
+  slug: 'pages',
+  access: { create: authenticated, read: () => true },
+  admin: { useAsTitle: 'title', livePreview: { url: ({ data }) => '/' + data.slug } },
+  hooks: { afterChange: [revalidatePage] },
+  versions: { drafts: true },
+  fields: [
+    { name: 'title', type: 'text', required: true },
+    {
+      type: 'tabs',
+      tabs: [
+        { label: 'Hero', fields: [
+          { name: 'hero', type: 'group', fields: [
+            { name: 'type', type: 'select', options: ['none', 'highImpact', 'lowImpact'], defaultValue: 'lowImpact' },
+            { name: 'richText', type: 'richText' },
+            { name: 'media', type: 'upload', relationTo: 'media' },
+          ] },
+        ] },
+        { label: 'Content', fields: [
+          { name: 'layout', type: 'blocks', blocks: [CallToAction, Content, MediaBlock] },
+        ] },
+        { name: 'meta', label: 'SEO', fields: [
+          { name: 'title', type: 'text' },
+          { name: 'description', type: 'textarea' },
+          { name: 'image', type: 'upload', relationTo: 'media' },
+        ] },
+      ],
+    },
+    { name: 'publishedAt', type: 'date', admin: { position: 'sidebar' } },
+    { name: 'slug', type: 'text', index: true, admin: { position: 'sidebar' }, hooks: { beforeValidate: [formatSlug('title')] } },
+  ],
+}
+
+const Posts = {
+  slug: 'posts',
+  labels: { singular: 'Post', plural: 'Posts' },
+  admin: { useAsTitle: 'title' },
+  versions: { drafts: true },
+  fields: [
+    { name: 'title', type: 'text', required: true },
+    { name: 'heroImage', type: 'upload', relationTo: 'media' },
+    { name: 'content', type: 'richText', required: true },
+    { name: 'relatedPosts', type: 'relationship', relationTo: 'posts', hasMany: true },
+    { name: 'categories', type: 'relationship', relationTo: 'categories', hasMany: true },
+    { name: 'authors', type: 'relationship', relationTo: 'users', hasMany: true },
+    { name: 'publishedAt', type: 'date' },
+    { name: 'slug', type: 'text', index: true },
+  ],
+}
+
+const Categories = {
+  slug: 'categories',
+  admin: { useAsTitle: 'title' },
+  fields: [{ name: 'title', type: 'text', required: true }, { name: 'slug', type: 'text' }],
+}
+
+const Media = {
+  slug: 'media',
+  upload: { staticDir: 'media' },
+  fields: [{ name: 'alt', type: 'text' }],
+}
+
+const Users = { slug: 'users', auth: true, fields: [{ name: 'name', type: 'text' }] }
+
+const Header = {
+  slug: 'header',
+  fields: [
+    { name: 'navItems', type: 'array', maxRows: 6, fields: [
+      { name: 'link', type: 'group', fields: [
+        { name: 'type', type: 'radio', options: ['reference', 'custom'] },
+        { name: 'newTab', type: 'checkbox' },
+        { name: 'url', type: 'text' },
+        { name: 'label', type: 'text', required: true },
+      ] },
+    ] },
+  ],
+}
+
+export default buildConfig({
+  db: postgresAdapter({ pool: { connectionString: process.env.DATABASE_URI } }),
+  collections: [Pages, Posts, Categories, Media, Users],
+  globals: [Header],
+})
