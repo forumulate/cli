@@ -7,12 +7,18 @@ import { runPublish } from './publish/command';
 import { apiBaseFromEnv, siteFromEnv } from './api-base';
 import { CONTENT_VALUE_FLAGS, runContent, type ContentDeps } from './content/command';
 import { IMPORT_VALUE_FLAGS, runImportCommand } from './import/command';
+import { runTranslations, TRANSLATIONS_VALUE_FLAGS } from './translations/command';
+import type { SyncFiles } from './translations/sync';
+import { HELP } from './help';
+import { route } from './commands';
+import { envWithConfig } from './commands/config';
+import type { Http } from './api/http';
 
 /**
  * Kept in step with package.json by `cli-version.test.ts` — they had drifted to
  * 0.1.0 and 0.2.1, so `--version` reported a release that was never published.
  */
-export const VERSION = '0.5.0';
+export const VERSION = '0.8.0';
 
 export interface RunDeps {
   /** The API client. Injected so the CLI is testable without a live server. */
@@ -40,96 +46,33 @@ export interface RunDeps {
   ask?: (question: string) => Promise<string>;
   /** File access for `content`, injected so its tests touch no disk. */
   files?: ContentDeps['files'];
+  /**
+   * The transport `api` and the resource commands use (see `api/http.ts` for
+   * why it is not the SDK's). Built from `baseUrl` and the stored token when
+   * absent; a test passes one aimed at its fake server.
+   */
+  http?: Http;
+  readFile?: (path: string) => string | Buffer;
+  /** Where `--out` writes a downloaded file (tests capture it). */
+  writeFile?: (path: string, data: Buffer | string) => void;
+  readStdin?: () => Promise<string>;
+  userAgent?: string;
+  /** File access for `translations pull|push`, which also walks a folder. */
+  translationFiles?: SyncFiles;
 }
 
 /** Flags that take a value, so `--only intro` does not read `intro` as an argument. */
-const VALUE_FLAGS = new Set(['--token', '--org', '--space', '--manifest', '--only', '--pace', ...CONTENT_VALUE_FLAGS, ...IMPORT_VALUE_FLAGS]);
-
-const HELP = `forumulate — Forumulate command-line interface
-
-Usage:
-  forumulate <command> [args]
-
-Commands:
-  login [--token <pat>]              Store a token for this API, so every other
-                                     command stops needing FORUMULATE_TOKEN in
-                                     the environment
-  logout                             Forget the stored token
-  whoami                              Show the authenticated user
-  orgs                               List your organizations
-  spaces <orgId>                     List spaces in an org
-  items <orgId> <spaceId>            List what is in a space, with where each
-                                     piece's content lives
-  search <orgId> <query...>          Unified search across docs/forum/blog
-  publish <folder>                   Publish a folder of Markdown: one folder per
-                                     collection, front matter, assets, order,
-                                     and a forumulate.yaml manifest for space,
-                                     site, theme, OpenAPI and monitors. Re-runs
-                                     change only what changed, then read back.
-      --org <id|slug> --space <id|slug>   (or org:/space: in the manifest)
-      --dry-run   print the plan, write nothing (no token needed for a
-                  public space)
-      --prune     remove pages/posts/collections with no file (to the trash)
-      --only a,b  just these slugs, files, folders, or manifest parts
-                  (site, theme, settings, openapi, monitors)
-      --force     re-send every page even if it looks unchanged
-      --no-verify skip the read-back      --pace <ms> gap between writes
-      --manifest <file>  a manifest somewhere else
-  publish <orgId> <spaceId> <pageId> Publish a page
-  publish <orgId> <spaceId> <dir>    The folder form, with org and space given
-  domains <orgId> <spaceId>          List this space's domains and their state
-  domains verify <orgId> <spaceId> <hostname>
-                                     Re-run verification and say what is missing
-  snapshot <orgId> <spaceId> <label> Create a space version snapshot
-  content types --library <id|slug>  TypeScript for a content library's model:
-                                     collections, globals, the block union
-      [--org <id|slug>] [--out forumulate.d.ts] [--preview] [--schema <file>]
-      [--check]   fail (exit 1) when the file is out of date, write nothing
-  content pull --library <id|slug>   Write the model to forumulate.content.json
-      [--format json|payload] [--out <file>]   (payload: forumulate.payload.ts)
-  content push [file]                Show the diff against the library, then
-                                     apply it as a new model version
-      [--library …] [--dry-run] [--yes] [--force]
-      [--rename type.field=new | block:hero.field=new | library:field=new]
-      [--rename-type old=new] [--rename-block old=new]
-  import <payload|contentful|sanity|strapi|wordpress> <export path>
-                                     Bring another CMS's content into a library:
-                                     model, media, entries, references (always
-                                     shows a dry run first)
-                                     Re-running updates entries a
-                                     previous import made. strapi takes a
-                                     folder or an unencrypted export .tar.gz
-      --library <id|slug> [--org …] [--dry-run] [--yes]
-      [--config payload.config.ts]   (payload) the config that becomes the model
-      [--publish source|all|none]    what to publish (default: what was live)
-      [--allow-model-removals] [--pace <ms>] [--base-url <url>] (strapi uploads)
-  conformance <collectionUrl>        Run the Content Sync Protocol suite against
-                                     any platform's collection endpoint
-  doctor <readerUrl>                 Check a live site from the outside: health,
-                                     public read, canonical, cache headers,
-                                     crawler access, feeds, HTML rewriting
-  help                               Show this help
-
-Environment:
-  FORUMULATE_TOKEN   Personal Access Token (Bearer). Overrides a stored one, so
-                     CI keeps working exactly as it did. Mint one at
-                     https://forumulate.com/account/tokens
-  FORUMULATE_URL     The site (default https://forumulate.com); the API is its
-                     /api, i.e. https://forumulate.com/api. A value already
-                     ending in /api is used as-is.
-  FORUMULATE_API_URL Exact API base, for a local API with no /api prefix
-                     (http://localhost:4000). Wins over FORUMULATE_URL.
-  FORUMULATE_ORG, FORUMULATE_LIBRARY
-                     Defaults for --org and --library (content commands).
-
-The SDK (ForumulateClient.fromEnv) and the MCP server (@forumulate/mcp) read
-the same variables. Guide: https://forumulate.com/guides/api-tokens-and-scopes
-
-Flags:
-  --json          Emit raw JSON instead of a formatted summary
-  --dry-run       Plan the work and write nothing (publish of a directory)
-  --version       Print the CLI version
-`;
+const VALUE_FLAGS = new Set([
+  '--token',
+  '--org',
+  '--space',
+  '--manifest',
+  '--only',
+  '--pace',
+  ...CONTENT_VALUE_FLAGS,
+  ...IMPORT_VALUE_FLAGS,
+  ...TRANSLATIONS_VALUE_FLAGS,
+]);
 
 /**
  * Parse and execute a CLI invocation. Pure w.r.t. I/O (uses the injected deps),
@@ -150,6 +93,27 @@ export async function run(argv: string[], deps: RunDeps): Promise<number> {
   };
   const json = flags.has('--json');
   const [cmd, ...rest] = args;
+
+  /*
+   * `api`, `config`, `completion` and the resource groups first: `api` passes
+   * `--version` and `--help` on to operations that declare them, and the
+   * groups keep the older positional forms below by handing them back.
+   */
+  if (cmd && !(flags.has('--version') && cmd !== 'api')) {
+    const routed = await route(cmd, argv, {
+      out: deps.out,
+      err: deps.err,
+      env: deps.env,
+      baseUrl: deps.baseUrl,
+      http: deps.http,
+      ask: deps.ask,
+      readFile: deps.readFile,
+      writeFile: deps.writeFile,
+      readStdin: deps.readStdin,
+      userAgent: deps.userAgent ?? `@forumulate/cli/${VERSION}`,
+    });
+    if (routed !== undefined) return routed;
+  }
 
   if (flags.has('--version')) {
     deps.out(VERSION);
@@ -443,7 +407,7 @@ export async function run(argv: string[], deps: RunDeps): Promise<number> {
           client: deps.client,
           out: deps.out,
           err: deps.err,
-          env: deps.env,
+          env: envWithConfig(deps.env),
           ask: deps.ask,
           files: deps.files,
         });
@@ -452,10 +416,20 @@ export async function run(argv: string[], deps: RunDeps): Promise<number> {
           client: deps.client,
           out: deps.out,
           err: deps.err,
-          env: deps.env,
+          env: envWithConfig(deps.env),
           ask: deps.ask,
           upload: deps.upload,
           sleep: deps.sleep,
+        });
+      case 'translations':
+      case 'i18n':
+        return runTranslations(argv, rest, {
+          client: deps.client,
+          out: deps.out,
+          err: deps.err,
+          env: envWithConfig(deps.env),
+          ask: deps.ask,
+          files: deps.translationFiles,
         });
       default:
         deps.err(`Unknown command: ${cmd}`);

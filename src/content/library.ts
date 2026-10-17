@@ -19,7 +19,7 @@ export interface LibraryTarget {
 
 export class TargetError extends Error {}
 
-async function orgIdOf(client: ForumulateClient, org: string): Promise<string> {
+export async function orgIdOf(client: ForumulateClient, org: string): Promise<string> {
   if (UUID.test(org)) return org;
   const { orgs } = await client.orgs.list();
   const hit = orgs.find((o) => o.slug === org || o.id === org);

@@ -1,6 +1,6 @@
 {
   "name": "@forumulate/cli",
-  "version": "0.5.0",
+  "version": "0.8.0",
   "description": "Command-line interface for Forumulate — manage orgs, spaces, docs, and search from your terminal.",
   "license": "MIT",
   "homepage": "https://forumulate.com/guides",
@@ -29,13 +29,14 @@
     "access": "public"
   },
   "scripts": {
-    "build": "tsc -p tsconfig.json",
-    "typecheck": "tsc -p tsconfig.json --noEmit --incremental --tsBuildInfoFile node_modules/.cache/tsc-src.tsbuildinfo",
+    "build": "tsc -p tsconfig.json && node scripts/slim-spec.mjs --copy",
+    "slim-spec": "node scripts/slim-spec.mjs",
     "test": "vitest run",
+    "typecheck": "tsc -p tsconfig.json --noEmit --incremental --tsBuildInfoFile node_modules/.cache/tsc-src.tsbuildinfo",
     "prepublishOnly": "npm run build"
   },
   "dependencies": {
-    "@forumulate/sdk": "^0.5.0",
+    "@forumulate/sdk": "^0.7.0",
     "yaml": "^2.6.1"
   },
   "devDependencies": {
