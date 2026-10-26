@@ -1,3 +1,5 @@
+import type { Slot } from './slots';
+
 /**
  * The shapes `forumulate publish <folder>` works in.
  *
@@ -36,6 +38,12 @@ export interface LocalPage {
   unknown: string[];
   /** Synthesised to stand for a folder that has no index file of its own. */
   stub?: boolean;
+  /**
+   * Named slots the front matter fills (`short-answer:` on an FAQ question),
+   * by the shape's own keys. Empty when the file declares none, which is the
+   * common case: the body alone is the page.
+   */
+  sections: Record<string, string>;
 }
 
 /** One top-level folder of a docs space. */
@@ -70,7 +78,23 @@ export interface LocalSpace {
   /** Local files (images, PDFs) referenced from pages or posts, absolute paths. */
   assets: Set<string>;
   warnings: string[];
+  /**
+   * Slugs of the files marked `draft: true`. Never created or published — and
+   * never pruned either: marking a live post as a draft must not delete it.
+   */
+  drafts: Set<string>;
+  /** Markdown files left out because of their name (README, `_drafts/…`, `ignore:`). */
+  skipped: { file: string; reason: string }[];
+  /** Blog categories declared in `_tags.yml` beside the files (the manifest's `tags:` wins). */
+  tags: Record<string, TagSpec>;
 }
+
+/**
+ * How one blog category looks, as written in the manifest or `_tags.yml`.
+ * The keys are `PUT …/blog/tags/{slug}`'s own, plus the spellings people
+ * reach for first (`name`, `colour`, `cover`, `image`), mapped in `tags.ts`.
+ */
+export type TagSpec = Record<string, unknown>;
 
 /** A space as the manifest describes it. */
 export interface SpaceSpec {
@@ -93,8 +117,36 @@ export interface SpaceSpec {
   >;
   openapi?: OpenApiSpec[];
   monitors?: Record<string, unknown>[];
+  /** An ABOUT space's parts (`PUT …/about`), inline or a YAML/JSON file beside the manifest. */
+  about?: Record<string, unknown> | string;
   /** Slugs (pages/posts) or collection slugs that `--prune` must never remove. */
   keep?: string[];
+  /**
+   * What a README is in this space: `index` (a folder's own page, GitBook's
+   * convention, and the default for page-backed spaces) or `skip`. A posts
+   * space always skips it — see `reserved.ts`.
+   */
+  readme?: 'index' | 'skip';
+  /** Extra names to leave out, as globs relative to the space folder. */
+  ignore?: string[];
+  /** Blog categories by slug: label, colours, description, cover, icon, parent. */
+  tags?: Record<string, TagSpec>;
+  /**
+   * Redirects this space keeps (FMU-F09): a list of rules, or a CSV file
+   * (relative to the manifest) in the redirect manager's columns. Merged into
+   * the space's table by `publish` — never deletes a rule the file does not
+   * name, and never touches the platform's own rename rules.
+   */
+  redirects?: ManifestRedirect[] | string;
+}
+
+/** One redirect a manifest declares — the same keys as `PUT …/redirects`. */
+export interface ManifestRedirect {
+  from: string;
+  to: string;
+  status?: 301 | 302 | 307 | 308;
+  type?: 'redirect' | 'rewrite';
+  passQuery?: boolean;
 }
 
 export interface OpenApiSpec {
@@ -152,6 +204,12 @@ export interface LivePost {
   sections?: Record<string, string>;
 }
 
+/** A tag's display as `GET …/blog/tag-info` answers it. */
+export interface LiveTag {
+  slug: string;
+  [key: string]: unknown;
+}
+
 /** What a piece of the plan does — one line in the dry run, one or more calls in the real one. */
 export type Verb =
   | 'create'
@@ -165,10 +223,42 @@ export type Verb =
   | 'import'
   | 'same'
   | 'skip'
-  | 'warn';
+  | 'warn'
+  /** A page edited in the studio since the last publish (FMU-D18). */
+  | 'conflict'
+  /** A page sent to a pull-request preview instead of published (FMU-F01). */
+  | 'preview';
 
 export interface PlanLine {
   verb: Verb;
   what: string;
   detail?: string;
+  /** For an update: the changed lines, `-` live and `+` the file (printed with `--diff`). */
+  diff?: string[];
 }
+
+export interface ScanResult extends LocalSpace {
+  /** Per file (relative to the space folder): reference as written → absolute asset path. */
+  refs: Map<string, Map<string, string>>;
+  /** Every Markdown file of the space (relative to the space folder) → its slug. */
+  slugByFile: Map<string, string>;
+}
+
+
+export type Reader = (abs: string) => {
+  rel: string;
+  text: string;
+  data: Record<string, unknown>;
+  body: string;
+};
+
+
+/** Shared with `scan-docs.ts`, which walks the docs half. */
+export interface DocsWalk {
+  fieldKeys: string[];
+  slots: Slot[];
+  skip: (abs: string, name: string) => boolean;
+  hasMarkdown: (dir: string) => boolean;
+  isIndex: (file: string) => boolean;
+}
+

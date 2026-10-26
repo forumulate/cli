@@ -63,7 +63,8 @@ describe('forumulate api: parameters', () => {
 
   it('refuses a flag the operation does not declare, and names where to look', async () => {
     const r = await api.cli(['api', 'Space_list', 'acme', '--nope', '1']);
-    expect(r.code).toBe(1);
+    // FMU-D05: a flag the operation lacks is a usage error, exit 2.
+    expect(r.code).toBe(2);
     expect(r.err).toContain('--nope is not a parameter of Space_list');
     expect(r.err).toContain('forumulate api describe Space_list');
     expect(api.seen).toHaveLength(0);
@@ -71,7 +72,8 @@ describe('forumulate api: parameters', () => {
 
   it('says which path params are missing', async () => {
     const r = await api.cli(['api', 'Space_get', 'acme']);
-    expect(r.code).toBe(1);
+    // FMU-D05: a missing argument is a usage error, exit 2.
+    expect(r.code).toBe(2);
     expect(r.err).toContain('needs <spaceId>');
   });
 });
@@ -202,7 +204,8 @@ describe('forumulate api: paging and output', () => {
 });
 
 describe('forumulate api: errors and retries', () => {
-  it('prints the error envelope and its field problems, exit 1', async () => {
+  // FMU-D05: a 422 is the caller's input, so the usage exit, 2.
+  it('prints the error envelope and its field problems, exit 2', async () => {
     api.on('POST /orgs/acme/spaces', {
       status: 422,
       body: {
@@ -220,7 +223,7 @@ describe('forumulate api: errors and retries', () => {
       '--type',
       'DOCS',
     ]);
-    expect(r.code).toBe(1);
+    expect(r.code).toBe(2);
     expect(r.err).toContain('Error 422 (validation.failed): Invalid body');
     expect(r.err).toContain('slug: taken');
   });

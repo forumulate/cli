@@ -1,4 +1,7 @@
 import type { Check } from './conformance';
+import { extendedChecks, DEFAULT_PLATFORM_HOST, type ExtendedInput } from './doctor/extended';
+import type { AddressSet } from './doctor/address-checks';
+import { follow, makeGet } from './doctor/probe';
 
 /**
  * Everything that is wrong with a live site, from the outside.
@@ -22,7 +25,39 @@ export interface DoctorInput {
   /** The API base, when it is not the same origin (defaults to the site's). */
   apiBase?: string;
   fetchImpl?: typeof fetch;
+  /**
+   * Only these check ids (`--only`). The single-page checks are cheap and run
+   * regardless, then are filtered; the site-wide ones (a sitemap crawl) are
+   * not started unless asked for.
+   */
+  only?: string[];
+  /** The platform's hostname, for the white-label and two-address checks. Default forumulate.com. */
+  platformHost?: string;
+  /** The platform's API base, for the primary-address lookup. Default `https://<platformHost>/api`. */
+  platformApi?: string;
+  /** Other addresses of the same page (`--also`, or looked up by `--site`). */
+  addressSets?: AddressSet[];
+  /** The space roots to check (`--site` knows them; otherwise derived from the URL). */
+  roots?: string[];
+  /** How many sitemap URLs to sample (`--limit`). */
+  limit?: number;
+  /** Per-request timeout. */
+  timeoutMs?: number;
 }
+
+/** The single-page checks, in report order; the site-wide ones are `EXTENDED_CHECK_IDS`. */
+export const BASE_CHECK_IDS = [
+  'health',
+  'public-read',
+  'canonical',
+  'html-untouched',
+  'cache-headers',
+  'robots',
+  'sitemap',
+  'crawler-access',
+  'feeds',
+  'images',
+] as const;
 
 export interface DoctorReport {
   url: string;
@@ -212,16 +247,41 @@ export async function runDoctor(input: DoctorInput): Promise<DoctorReport> {
     );
   }
 
-  // 5. The document is cacheable, and says so.
+  // 5. The document is cacheable, and says so — or says WHY not.
   if (anon.ok) {
     const cc = anon.res.headers.get('cache-control') ?? '';
     const bad = /no-store/i.test(cc) || cc === '';
+    // The platform names the rule behind every reader `no-store` (FMU-B05): a
+    // gated page is meant to be uncached, an accident is not.
+    const reason = anon.res.headers.get('x-forumulate-cache-reason');
     add(
       'cache-headers',
       'The document carries a usable Cache-Control',
-      bad ? 'fail' : 'pass',
-      cc || '(none)',
-      'Without one, every reader pays full origin latency and a CDN in front of it does nothing.',
+      // A gated page is reported as a skip (counted with the warnings), not a failure.
+      bad ? (reason && GATED_REASONS.has(reason) ? 'skip' : 'fail') : 'pass',
+      `${cc || '(none)'}${reason ? ` — reason: ${reason}` : ''}`,
+      reason && GATED_REASONS.has(reason)
+        ? 'This page is gated, so it is deliberately kept out of shared caches.'
+        : 'Without one, every reader pays full origin latency and a CDN in front of it does nothing.',
+    );
+  }
+
+  // 5b. The page describes itself in the owner's words, not a stock sentence.
+  if (html) {
+    const description =
+      /<meta[^>]+name=["']description["'][^>]+content=["']([^"']*)["']/i.exec(html)?.[1] ?? null;
+    const stock = description ? STOCK_DESCRIPTIONS.find((re) => re.test(description)) : undefined;
+    add(
+      'description',
+      'The page has a description of its own',
+      // A stock sentence is a failure; no description at all is only a warning.
+      stock ? 'fail' : description ? 'pass' : 'skip',
+      description ?? 'No meta description.',
+      stock
+        ? 'This is a generic sentence, not one you wrote; search results and share cards show it. Set the space description (settings.seo.description) or the site tagline.'
+        : description
+          ? ''
+          : 'Search engines make one up from the page. Set the space description (settings.seo.description) or the site tagline.',
     );
   }
 
@@ -348,6 +408,39 @@ export async function runDoctor(input: DoctorInput): Promise<DoctorReport> {
         : 'A page that renders with holes in it reads as abandoned, and nothing about a 200 page says its pictures are gone.',
     );
   }
+
+  /*
+   * The site-wide checks (FMU-D14). They judge the page a reader LANDS on, so
+   * a root that redirects is followed first — the redirect itself is what
+   * `root-redirect` judges, and its throwaway body is not the page.
+   */
+  const only = input.only?.length ? new Set(input.only) : undefined;
+  const probeGet = makeGet({ fetchImpl: doFetch, timeoutMs: input.timeoutMs });
+  let landedUrl = site.toString();
+  let landedHtml = html;
+  if (anon.ok && anon.res.status >= 300 && anon.res.status < 400) {
+    const { final } = await follow(probeGet, landedUrl, { accept: 'text/html' });
+    if (final.ok && final.status === 200) {
+      landedUrl = final.url;
+      landedHtml = final.text;
+    }
+  }
+  const platformHost = (input.platformHost ?? DEFAULT_PLATFORM_HOST).toLowerCase();
+  const extended: ExtendedInput = {
+    url: landedUrl,
+    requestedUrl: site.toString(),
+    html: landedHtml,
+    robots: robots.ok && robots.res.status === 200 ? robots.text : undefined,
+    get: probeGet,
+    platformHost,
+    platformApi: input.platformApi ?? `https://${platformHost}/api`,
+    addressSets: input.addressSets,
+    roots: input.roots,
+    limit: input.limit,
+    only,
+  };
+  checks.push(...(await extendedChecks(extended)));
+  if (only) checks.splice(0, checks.length, ...checks.filter((c) => only.has(c.id)));
 
   return {
     url: input.url,
@@ -521,3 +614,29 @@ function blocksPath(robots: string, pathname: string): boolean {
   }
   return false;
 }
+
+/** `x-forumulate-cache-reason` values that mean "gated on purpose", not an accident. */
+const GATED_REASONS = new Set([
+  'network-gate',
+  'status-gate',
+  'policy-gate',
+  'post-password',
+  'legal-access-link',
+  'legal-acceptance',
+  'credential-handshake',
+]);
+
+/**
+ * The stock sentences reader surfaces used to make up when a space had no
+ * description (FMU-B08). A page still carrying one is reported, so a site
+ * served by an older build, or another platform's boilerplate, is caught.
+ */
+const STOCK_DESCRIPTIONS = [
+  /^Guides and reference, in a nested tree\.$/,
+  /^Community discussions in .+\.$/,
+  /^The latest posts from .+\.$/,
+  /^Published documentation for .+\.$/,
+  /^Terms, privacy and the other policies that apply to .+\.$/,
+  /^Live status for .+\.$/,
+  /^Product updates and release notes for .+\.$/,
+];

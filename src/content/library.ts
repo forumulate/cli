@@ -19,9 +19,17 @@ export interface LibraryTarget {
 
 export class TargetError extends Error {}
 
+/**
+ * The rows of an org list on any API version: `data` from 2027-01-01 (lean
+ * lists, FMU-D12; the SDK states that version), the named `orgs` key before it.
+ */
+export function orgRows<T>(res: { data?: T[]; orgs?: T[] }): T[] {
+  return res.data ?? res.orgs ?? [];
+}
+
 export async function orgIdOf(client: ForumulateClient, org: string): Promise<string> {
   if (UUID.test(org)) return org;
-  const { orgs } = await client.orgs.list();
+  const orgs = orgRows(await client.orgs.list());
   const hit = orgs.find((o) => o.slug === org || o.id === org);
   if (!hit) throw new TargetError(`No organization "${org}" among yours (forumulate orgs lists them).`);
   return hit.id;
@@ -35,7 +43,7 @@ export async function resolveLibrary(
     throw new TargetError('Say which content library: --library <id|slug> (or FORUMULATE_LIBRARY).');
   }
   const library = want.library;
-  const orgIds = want.org ? [await orgIdOf(client, want.org)] : (await client.orgs.list()).orgs.map((o) => o.id);
+  const orgIds = want.org ? [await orgIdOf(client, want.org)] : orgRows(await client.orgs.list()).map((o) => o.id);
   const hits: LibraryTarget[] = [];
   for (const orgId of orgIds) {
     // An org the caller cannot list libraries in simply has none for them.

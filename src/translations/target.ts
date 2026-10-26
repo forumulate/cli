@@ -6,7 +6,7 @@
  * ambiguous slug is refused with the orgs named, never guessed.
  */
 import type { ForumulateClient, LocaleTarget, Space } from '@forumulate/sdk';
-import { orgIdOf, resolveLibrary, TargetError } from '../content/library';
+import { orgIdOf, orgRows, resolveLibrary, TargetError } from '../content/library';
 
 export { TargetError };
 
@@ -27,7 +27,7 @@ export async function resolveSpace(
   const space = want.space;
   const orgIds = want.org
     ? [await orgIdOf(client, want.org)]
-    : (await client.orgs.list()).orgs.map((o) => o.id);
+    : orgRows(await client.orgs.list()).map((o) => o.id);
   const hits: SpaceTarget[] = [];
   for (const orgId of orgIds) {
     const listed = await client.spaces.list(orgId).catch(() => ({ spaces: [] as Space[] }));
@@ -60,7 +60,7 @@ export async function resolveLocaleTarget(
 /** The org alone (`overrides`), from --org or the only one the caller has. */
 export async function resolveOrg(client: ForumulateClient, org?: string): Promise<string> {
   if (org) return orgIdOf(client, org);
-  const { orgs } = await client.orgs.list();
+  const orgs = orgRows(await client.orgs.list());
   if (orgs.length === 1) return orgs[0]!.id;
   throw new TargetError(`Say which organization: --org <id|slug> (you have ${orgs.length}).`);
 }

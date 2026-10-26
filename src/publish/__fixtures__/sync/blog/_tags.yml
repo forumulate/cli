@@ -1,0 +1,7 @@
+releases:
+  name: Releases
+  cover: img/cover.png
+guides:
+  label: Guides
+  icon: book-open
+  colour: teal

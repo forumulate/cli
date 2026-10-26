@@ -1,6 +1,6 @@
 {
   "name": "@forumulate/cli",
-  "version": "0.8.0",
+  "version": "0.11.0",
   "description": "Command-line interface for Forumulate — manage orgs, spaces, docs, and search from your terminal.",
   "license": "MIT",
   "homepage": "https://forumulate.com/guides",
@@ -36,7 +36,7 @@
     "prepublishOnly": "npm run build"
   },
   "dependencies": {
-    "@forumulate/sdk": "^0.7.0",
+    "@forumulate/sdk": "^0.11.0",
     "yaml": "^2.6.1"
   },
   "devDependencies": {

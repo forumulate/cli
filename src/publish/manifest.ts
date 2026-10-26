@@ -1,7 +1,7 @@
 import { existsSync, readFileSync } from 'node:fs';
 import { join, resolve } from 'node:path';
 import { parse as parseYaml } from 'yaml';
-import { MANIFEST_NAMES } from './scan';
+import { MANIFEST_NAMES } from './reserved';
 import type { Manifest, SiteSpec, SpaceSpec } from './types';
 
 /**
@@ -24,7 +24,12 @@ import type { Manifest, SiteSpec, SpaceSpec } from './types';
  *     site: { slug: main, config: { tagline: "…" } }
  *     spaces:
  *       - { path: docs, space: docs }
- *       - { path: blog, space: blog }
+ *       - { path: blog, space: blog, tags: { releases: { label: Releases, color: '#0a7' } } }
+ *
+ * Per space, besides where it publishes: `readme: index|skip` (what a README
+ * is — see `reserved.ts`), `ignore:` (more names to leave out), `tags:`
+ * (how a blog's categories look — see `tags.ts`) and `redirects:` (rules, or a
+ * CSV file, merged into the space's redirect table — see `redirects.ts`).
  */
 const SPACE_KEYS = [
   'space',
@@ -38,7 +43,12 @@ const SPACE_KEYS = [
   'collections',
   'openapi',
   'monitors',
+  'about',
   'keep',
+  'readme',
+  'ignore',
+  'tags',
+  'redirects',
 ] as const;
 const TOP_KEYS = new Set(['org', 'site', 'spaces', '$schema', ...SPACE_KEYS]);
 
@@ -88,6 +98,26 @@ function spaceSpec(raw: Record<string, unknown>, where: string): SpaceSpec {
     if (typeof asObject(m, `${where}.monitors[${i}]`)?.name !== 'string')
       throw new Error(`${where}.monitors[${i}] needs a \`name\` — monitors are matched by it`);
   }
+  if (raw.readme !== undefined && raw.readme !== 'index' && raw.readme !== 'skip')
+    throw new Error(`${where}.readme must be \`index\` or \`skip\``);
+  if (raw.ignore !== undefined && !Array.isArray(raw.ignore) && typeof raw.ignore !== 'string')
+    throw new Error(`${where}.ignore must be a list of patterns`);
+  const redirects = raw.redirects;
+  if (redirects !== undefined && typeof redirects !== 'string') {
+    if (!Array.isArray(redirects))
+      throw new Error(`${where}.redirects must be a list of {from, to} or a CSV file name`);
+    for (const [i, r] of redirects.entries()) {
+      const rule = asObject(r, `${where}.redirects[${i}]`);
+      if (typeof rule?.from !== 'string' || typeof rule.to !== 'string')
+        throw new Error(`${where}.redirects[${i}] needs \`from\` and \`to\``);
+      if (!rule.from.startsWith('/'))
+        throw new Error(`${where}.redirects[${i}].from must be a path starting with /`);
+    }
+  }
+  const tags = asObject(raw.tags, `${where}.tags`);
+  for (const [slug, t] of Object.entries(tags ?? {}))
+    if (t !== null && (typeof t !== 'object' || Array.isArray(t)))
+      throw new Error(`${where}.tags.${slug} must be a map (label, color, cover, icon, …)`);
   return {
     path: typeof raw.path === 'string' ? raw.path : '',
     space: raw.space === undefined ? undefined : String(raw.space),
@@ -100,8 +130,23 @@ function spaceSpec(raw: Record<string, unknown>, where: string): SpaceSpec {
     collections: asObject(raw.collections, `${where}.collections`) as SpaceSpec['collections'],
     openapi: openapi as SpaceSpec['openapi'],
     monitors: monitors as SpaceSpec['monitors'],
+    about: aboutOf(raw.about, where),
     keep: Array.isArray(raw.keep) ? raw.keep.map(String) : undefined,
+    readme: raw.readme as SpaceSpec['readme'],
+    ignore:
+      raw.ignore === undefined
+        ? undefined
+        : (Array.isArray(raw.ignore) ? raw.ignore : [raw.ignore]).map(String),
+    tags: tags as SpaceSpec['tags'],
+    redirects: redirects as SpaceSpec['redirects'],
   };
+}
+
+/** `about:` — a map of an About page's parts, or the name of a file holding one. */
+function aboutOf(v: unknown, where: string): SpaceSpec['about'] {
+  if (v === undefined || v === null) return undefined;
+  if (typeof v === 'string') return v;
+  return asObject(v, `${where}.about`);
 }
 
 /** Read and check the manifest; `null` file → the one-space default. */

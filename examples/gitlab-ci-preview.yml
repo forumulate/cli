@@ -1,0 +1,17 @@
+# Docs preview per merge request (FMU-F01) — GitLab CI. Add to .gitlab-ci.yml.
+#
+# Variables (Settings → CI/CD → Variables, masked):
+#   FORUMULATE_TOKEN  a token with docs.write on the space
+#   GITLAB_TOKEN      a project access token with the `api` scope (CI_JOB_TOKEN
+#                     cannot write merge-request notes)
+docs-preview:
+  image: node:20
+  rules:
+    - if: $CI_PIPELINE_SOURCE == "merge_request_event"
+      changes: ['docs/**/*', 'forumulate.yaml']
+  script:
+    - npm i -g @forumulate/cli
+    - forumulate check links docs
+    - forumulate publish docs --org acme --space docs --preview mr-$CI_MERGE_REQUEST_IID --comment --json --out preview.json
+  artifacts:
+    paths: [preview.json]

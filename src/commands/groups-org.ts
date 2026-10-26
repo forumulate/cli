@@ -265,8 +265,14 @@ export const ORG_GROUPS: GroupDef[] = [
     verbs: {
       list: {
         op: 'Pat_list',
-        about: 'List tokens',
-        columns: ['id', 'name', 'scopes', 'lastUsedAt', 'expiresAt'],
+        about: 'List tokens (--include revoked adds revokedAt/revokedBy)',
+        columns: ['id', 'name', 'tokenHint', 'scopes', 'lastUsedAt', 'expiresAt', 'revokedAt'],
+      },
+      audit: {
+        op: 'Pat_audit',
+        about: 'What is wrong with each token: unconstrained, non-expiring, unused',
+        pick: 'tokens',
+        columns: ['name', 'tokenHint', 'issues', 'lastUsedAt', 'expiresAt'],
       },
       scopes: { op: 'Pat_scopes', about: 'The scopes a token can carry' },
       create: {
@@ -292,6 +298,25 @@ export const ORG_GROUPS: GroupDef[] = [
         args: ['id'],
         destructive: true,
         lookup: { id: { listOp: 'Pat_list', match: ['name'] } },
+      },
+    },
+  },
+  {
+    name: 'keys',
+    noun: 'key',
+    about: 'every key you (and, with --org, your organization) hold; report a leaked one',
+    defaultVerb: 'list',
+    verbs: {
+      list: {
+        op: 'Keys_keys',
+        about: 'List every key (--org adds the organization’s; --include revoked)',
+        pick: 'keys',
+        columns: ['kind', 'name', 'prefix', 'owner', 'last_used_at', 'expires_at', 'revoked_at'],
+      },
+      'revoke-leaked': {
+        op: 'Keys_revokeLeaked',
+        about: 'Report a key found in public (it is revoked; no confirmation is given)',
+        args: ['token'],
       },
     },
   },
@@ -397,6 +422,39 @@ export const ORG_GROUPS: GroupDef[] = [
         op: 'Audit_exportCsv',
         about: 'The log as CSV (same filters)',
         download: 'audit.csv',
+      },
+    },
+  },
+  /*
+   * FMU-S01: the credential a chat or knowledge vendor gets — org-owned,
+   * read-only, limited to named spaces. Separate from `tokens` (a person's
+   * own tokens) because it belongs to the organization and survives the
+   * person who made it leaving.
+   */
+  {
+    name: 'integration-tokens',
+    aliases: ['int-tokens'],
+    noun: 'integration token',
+    about: 'org-owned, read-only tokens for a third party’s knowledge sync',
+    defaultVerb: 'list',
+    verbs: {
+      list: {
+        op: 'IntegrationToken_list',
+        about: 'List them (--include revoked)',
+        columns: ['id', 'name', 'audience', 'capabilities', 'lastUsedAt', 'expiresAt', 'revokedAt'],
+      },
+      create: {
+        op: 'IntegrationToken_create',
+        about:
+          'Mint one (--spaceIds docs,guides --audience intercom --capabilities kb.read,search; shown once)',
+        args: ['name'],
+      },
+      revoke: {
+        op: 'IntegrationToken_revoke',
+        about: 'Revoke one; the next request with it is refused',
+        args: ['id'],
+        destructive: true,
+        lookup: { id: { listOp: 'IntegrationToken_list', match: ['name'] } },
       },
     },
   },

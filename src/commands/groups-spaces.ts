@@ -16,8 +16,9 @@ export const SPACE_GROUPS: GroupDef[] = [
     verbs: {
       list: {
         op: 'Space_list',
-        about: 'List spaces (--deleted true for the trash)',
-        columns: ['id', 'slug', 'type', 'name', 'visibility'],
+        about: 'List spaces (--deleted true for the trash, with when each is destroyed)',
+        // `deletedAt`/`purgeAfter` appear only on the trash list (FMU-S07).
+        columns: ['id', 'slug', 'type', 'name', 'visibility', 'deletedAt', 'purgeAfter'],
       },
       overview: {
         op: 'Space_overview',
@@ -46,9 +47,16 @@ export const SPACE_GROUPS: GroupDef[] = [
         about: 'Bring a space back from the trash',
         args: ['spaceId'],
       },
+      destroy: {
+        op: 'Space_destroy',
+        about:
+          'Delete a TRASHED space and everything in it for good (--confirm <its slug>). Not a cache purge: see `forumulate cache purge`',
+        args: ['spaceId'],
+        destructive: true,
+      },
       purge: {
-        op: 'Space_purge',
-        about: 'Delete a trashed space for good',
+        op: 'Space_destroy',
+        about: 'Old name of `destroy` (deleting for good, not a cache purge)',
         args: ['spaceId'],
         destructive: true,
       },
@@ -72,7 +80,6 @@ export const SPACE_GROUPS: GroupDef[] = [
         op: 'Space_slugHistory',
         about: 'Old slugs that still redirect here',
         args: ['spaceId'],
-        columns: ['slug', 'createdAt'],
       },
       'slugs forget': {
         op: 'Space_forgetSlug',

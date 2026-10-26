@@ -1,9 +1,23 @@
 import { parseArgs, flag, has, type Parsed } from './args';
+import { EXIT } from '../exit-codes';
 import { describe, expand } from './describe';
 import { Http, type HttpRequest } from './http';
 import { table } from './output';
 import { printRequest, sendAndPrint } from './send';
-import { filterOps, findById, findByPath, isMethod, loadIndex, type Operation } from './spec';
+import {
+  filterOps,
+  findById,
+  findByPath,
+  isMethod,
+  loadIndex,
+  setIndex,
+  type Operation,
+} from './spec';
+import { readLive, refreshLive } from './live-spec';
+import { VERSION } from '../version';
+
+/** Named in the footer so "1,810 operations" says which CLI counted them. */
+const VERSION_LABEL = `@forumulate/cli ${VERSION}`;
 import { API_FLAGS, planRequest, UsageError, type RequestSources } from './request';
 import type { CommandDeps } from '../commands/context';
 
@@ -23,7 +37,7 @@ import type { CommandDeps } from '../commands/context';
 export const API_HELP = `forumulate api — call any operation in the Forumulate API
 
 Usage:
-  forumulate api list [--tag <tag>] [--search <words>] [--method GET]
+  forumulate api list [--tag <tag>] [--search <words>] [--method GET] [--refresh]
   forumulate api describe <operationId | METHOD path> [--json]
   forumulate api <operationId> [path params…] [flags]
   forumulate api <METHOD> <path> [path params…] [flags]
@@ -51,9 +65,27 @@ Output and transport:
   --idempotency-key <k>   instead of the generated one
   --dry-run               print the request, send nothing
 
-Exit status is 0 on a 2xx and 1 otherwise (usage errors included).`;
+Operation list:
+  --refresh               fetch the live API's spec (ETag-revalidated) and use it
+                          from now on; the bundled list is the one this CLI was
+                          built with, and the API keeps growing after a release
 
-const API_SWITCHES = new Set(['json', 'paginate', 'include-headers', 'dry-run', 'help', 'verbose']);
+Output and exit:
+  --jsonl                 with --paginate: one JSON row per line, streamed
+  --out <file>            write the output to a file
+  Exit 0 on a 2xx; 2 usage, 3 auth (401/403), 4 not found, 5 conflict (409/412),
+  1 anything else.`;
+
+const API_SWITCHES = new Set([
+  'json',
+  'jsonl',
+  'paginate',
+  'include-headers',
+  'dry-run',
+  'help',
+  'verbose',
+  'refresh',
+]);
 
 export async function runApi(argv: string[], deps: CommandDeps): Promise<number> {
   const parsed = parseArgs(argv, API_SWITCHES);
@@ -63,8 +95,11 @@ export async function runApi(argv: string[], deps: CommandDeps): Promise<number>
     deps.out(API_HELP);
     return first || has(parsed, 'help') ? 0 : 1;
   }
+  // The newer of the bundled index and a refreshed live one (FMU-D13).
+  const source = await chooseIndex(parsed, deps);
+  if (typeof source === 'number') return source;
   try {
-    if (first === 'list' || first === 'ls') return list(parsed, rest, deps, json);
+    if (first === 'list' || first === 'ls') return list(parsed, rest, deps, json, source);
     if (first === 'describe') {
       const target = resolveOp(rest);
       if (!target) return usage(deps, 'api describe <operationId | METHOD path>', rest.join(' '));
@@ -83,7 +118,7 @@ export async function runApi(argv: string[], deps: CommandDeps): Promise<number>
   } catch (e) {
     if (e instanceof UsageError) {
       deps.err(`Usage: ${e.message}`);
-      return 1;
+      return EXIT.USAGE;
     }
     throw e;
   }
@@ -92,7 +127,7 @@ export async function runApi(argv: string[], deps: CommandDeps): Promise<number>
 function usage(deps: CommandDeps, form: string, got?: string): number {
   if (got) deps.err(`No operation matches "${got}". Try: forumulate api list --search <words>`);
   deps.err(`Usage: forumulate ${form}`);
-  return 1;
+  return EXIT.USAGE;
 }
 
 /** `Space_list` or `GET /orgs/{orgId}/spaces` or `GET /orgs/acme/spaces`. */
@@ -109,7 +144,45 @@ function resolveOp(
   return op && { op, values: {}, used: 1 };
 }
 
-function list(parsed: Parsed, rest: string[], deps: CommandDeps, json: boolean): number {
+/** Which index this invocation runs from, and how to describe it in the footer. */
+interface IndexSource {
+  label: string;
+}
+
+async function chooseIndex(parsed: Parsed, deps: CommandDeps): Promise<IndexSource | number> {
+  const apiBase = deps.http.opts.baseUrl;
+  setIndex(undefined);
+  const bundled = loadIndex().ops.length;
+  if (has(parsed, 'refresh')) {
+    try {
+      const r = await refreshLive(apiBase, { env: deps.env });
+      deps.err(
+        r.changed
+          ? `Fetched the live spec from ${r.meta.url}: ${r.meta.ops} operations (this CLI bundles ${bundled}).`
+          : `The live spec has not changed since ${r.meta.fetchedAt.slice(0, 10)} (304).`,
+      );
+    } catch (e) {
+      deps.err(`Could not refresh the operation list: ${(e as Error).message}`);
+      return EXIT.FAILED;
+    }
+  }
+  const live = readLive(apiBase, deps.env);
+  if (live && live.meta.ops >= bundled) {
+    setIndex(live.index);
+    return { label: `live spec, fetched ${live.meta.fetchedAt.slice(0, 16).replace('T', ' ')}` };
+  }
+  return {
+    label: `bundled with this CLI (${VERSION_LABEL}); the live API may have more — run \`forumulate api list --refresh\``,
+  };
+}
+
+function list(
+  parsed: Parsed,
+  rest: string[],
+  deps: CommandDeps,
+  json: boolean,
+  source: IndexSource,
+): number {
   const ops = filterOps({
     tag: flag(parsed, 'tag'),
     search: [flag(parsed, 'search'), ...rest].filter(Boolean).join(' ') || undefined,
@@ -127,15 +200,36 @@ function list(parsed: Parsed, rest: string[], deps: CommandDeps, json: boolean):
   }
   if (ops.length === 0) {
     deps.err('No operations match.');
-    return 1;
+    return EXIT.NOT_FOUND;
   }
   for (const l of table(
     ops.map((o) => ({ operationId: o.id, method: o.m, path: o.p, summary: o.s ?? '' })),
     ['operationId', 'method', 'path', 'summary'],
   ))
     deps.out(l);
-  deps.out(`-- ${ops.length} of ${loadIndex().ops.length} operations`);
+  deps.out(`-- ${ops.length} of ${loadIndex().ops.length} operations (${source.label})`);
   return 0;
+}
+
+/**
+ * Whether `--dry-run` belongs to the operation rather than to the CLI.
+ *
+ * A handful of writes have a dry run of their own that answers a DIFF
+ * (`Site_replace`, the front pages), and `--dry-run` reaches those. Since
+ * FMU-SI06 every authenticated write also carries the API's GENERIC `dryRun`
+ * (validate, write nothing), and reading that as "the operation's own" turned
+ * the documented "print the request, send nothing" into a live call for
+ * ~1,200 operations — needing a token and a network. The generic one is
+ * reachable as `--param dryRun=true`; it is told apart by the description
+ * the API stamps on every copy of it (openapi-orchestration.ts).
+ */
+const GENERIC_DRY_RUN = '`true`: authenticate, authorize and validate this request';
+function ownDryRun(op: Operation): boolean {
+  return (op.q ?? []).some((p) => p.n === 'dryRun' && !(p.d ?? '').startsWith(GENERIC_DRY_RUN));
+}
+
+function withoutFlag(parsed: Parsed, name: string): Parsed {
+  return { ...parsed, flags: new Map([...parsed.flags].filter(([k]) => k !== name)) };
 }
 
 async function invoke(parsed: Parsed, deps: CommandDeps, json: boolean): Promise<number> {
@@ -150,7 +244,10 @@ async function invoke(parsed: Parsed, deps: CommandDeps, json: boolean): Promise
   let op: Operation | undefined;
   if (target) {
     op = target.op;
-    ({ request } = await planRequest(op, parsed, words.slice(target.used), src, target.values));
+    // A local dry run must not ALSO become the operation's `dryRun=true` —
+    // printed, it is a request the user never meant to send.
+    const planned = has(parsed, 'dry-run') && !ownDryRun(op) ? withoutFlag(parsed, 'dry-run') : parsed;
+    ({ request } = await planRequest(op, planned, words.slice(target.used), src, target.values));
   } else if (isMethod(words[0]) && words[1]?.startsWith('/')) {
     // A path the bundled spec does not know (a route newer than this CLI):
     // send it as written, unknown flags as query parameters.
@@ -179,7 +276,7 @@ async function invoke(parsed: Parsed, deps: CommandDeps, json: boolean): Promise
   }
 
   const http = deps.http;
-  if (has(parsed, 'dry-run') && !op?.q?.some((p) => p.n === 'dryRun')) {
+  if (has(parsed, 'dry-run') && !(op && ownDryRun(op))) {
     printRequest(http, request, deps);
     return 0;
   }
@@ -190,6 +287,7 @@ async function invoke(parsed: Parsed, deps: CommandDeps, json: boolean): Promise
     {
       json,
       paginate: has(parsed, 'paginate'),
+      jsonl: has(parsed, 'jsonl'),
       maxPages: Number(flag(parsed, 'max-pages') ?? 1000),
       columns: columns(parsed),
       includeHeaders: has(parsed, 'include-headers'),

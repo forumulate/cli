@@ -1,6 +1,6 @@
 import type { Http } from '../api/http';
 import type { CliConfig } from './config';
-import { UsageError } from '../api/request';
+import { EXIT } from '../exit-codes';
 
 /**
  * What `forumulate api` and the resource commands need from the outside world,
@@ -60,8 +60,15 @@ export async function resolveChild(
     cursor = body.page?.nextCursor ?? undefined;
     if (!body.page?.hasMore || !cursor) break;
   }
-  throw new UsageError(
-    `No ${what} "${ref}" in ${orgId} (it has: ${seen.slice(0, 12).join(', ') || 'none'}${seen.length > 12 ? ', …' : ''})`,
+  // A slug nothing in the org answers to is a missing thing (exit 4), not a
+  // malformed command line (exit 2): the command was right, the space is not
+  // there. It was a UsageError, which printed "Usage: No space …" and exited 2,
+  // so a script could not tell a typo in its flags from a deleted space.
+  throw Object.assign(
+    new Error(
+      `No ${what} "${ref}" in ${orgId} (it has: ${seen.slice(0, 12).join(', ') || 'none'}${seen.length > 12 ? ', …' : ''})`,
+    ),
+    { code: `${what}.not_found`, exitCode: EXIT.NOT_FOUND },
   );
 }
 

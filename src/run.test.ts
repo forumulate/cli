@@ -105,13 +105,14 @@ function deps(out: string[], client: ForumulateClient = okClient()): RunDeps {
   return { client, out: (l) => out.push(l), err: (l) => out.push(l) };
 }
 
-function harness(client: Partial<ForumulateClient>) {
+function harness(client: Partial<ForumulateClient>, env?: NodeJS.ProcessEnv) {
   const out: string[] = [];
   const err: string[] = [];
   const deps: RunDeps = {
     client: client as ForumulateClient,
     out: (l) => out.push(l),
     err: (l) => err.push(l),
+    ...(env ? { env } : {}),
   };
   return { deps, out, err };
 }
@@ -130,24 +131,39 @@ describe('forumulate CLI run()', () => {
     expect(out.join('\n')).toContain('whoami');
   });
 
+  // FMU-D06: whoami resolves the token's source itself and, with none, exits 3
+  // without calling the API — so these give it one in the environment. The
+  // report is several lines (source, token, api); the user is the first.
+  const tokenEnv = { FORUMULATE_TOKEN: 'cft_test', FORUMULATE_API_URL: 'https://api.example.com' };
+
   it('whoami calls auth.me and formats it', async () => {
-    const { deps, out } = harness({
-      auth: {
-        me: async () => ({ user: { id: 'u1', email: 'a@b.co', name: 'Ada' } }),
-      } as ForumulateClient['auth'],
-    });
+    const { deps, out } = harness(
+      {
+        auth: {
+          me: async () => ({ user: { id: 'u1', email: 'a@b.co', name: 'Ada' } }),
+        } as ForumulateClient['auth'],
+      },
+      tokenEnv,
+    );
     expect(await run(['whoami'], deps)).toBe(0);
-    expect(out.join('\n')).toBe('Ada <a@b.co> (u1)');
+    expect(out[0]).toBe('Ada <a@b.co> (u1)');
+    expect(out.join('\n')).toContain('token source  FORUMULATE_TOKEN (environment)');
   });
 
+  // FMU-D06: --json is now the whole report, with the user under `user`.
   it('whoami --json emits raw JSON', async () => {
-    const { deps, out } = harness({
-      auth: {
-        me: async () => ({ user: { id: 'u1', email: 'a@b.co', name: 'Ada' } }),
-      } as ForumulateClient['auth'],
-    });
+    const { deps, out } = harness(
+      {
+        auth: {
+          me: async () => ({ user: { id: 'u1', email: 'a@b.co', name: 'Ada' } }),
+        } as ForumulateClient['auth'],
+      },
+      tokenEnv,
+    );
     await run(['whoami', '--json'], deps);
-    expect(JSON.parse(out.join('\n'))).toEqual({ id: 'u1', email: 'a@b.co', name: 'Ada' });
+    const report = JSON.parse(out.join('\n'));
+    expect(report.user).toEqual({ id: 'u1', email: 'a@b.co', name: 'Ada' });
+    expect(report.tokenSource).toBe('env');
   });
 
   it('spaces lists an org’s spaces', async () => {
@@ -160,9 +176,10 @@ describe('forumulate CLI run()', () => {
     expect(out.join('\n')).toContain('s1  docs  [DOCS]  Docs');
   });
 
-  it('spaces without an orgId prints usage + exits 1', async () => {
+  // FMU-D05: a usage error is exit 2 (it was 1, the same as any failure).
+  it('spaces without an orgId prints usage + exits 2', async () => {
     const { deps, err } = harness({});
-    expect(await run(['spaces'], deps)).toBe(1);
+    expect(await run(['spaces'], deps)).toBe(2);
     expect(err.join('\n')).toContain('Usage: forumulate spaces <orgId>');
   });
 
@@ -179,36 +196,45 @@ describe('forumulate CLI run()', () => {
     expect(out.join('\n')).toContain('[docs] Deploy  /x');
   });
 
-  it('publish calls publishPage', async () => {
-    let called = '';
-    const { deps, out } = harness({
-      spaces: {
-        publishPage: async (_o: string, _s: string, pageId: string) => {
-          called = pageId;
-          return { page: {} as never };
-        },
-      } as unknown as ForumulateClient['spaces'],
-    });
+  // FMU-D04/DOC07: the deprecated `publish <org> <space> <pageId>` form now
+  // POSTs the publish itself so it can send `purge` (the SDK's publishPage
+  // takes no body), and names its replacement on stderr.
+  it('publish <org> <space> <pageId> posts the page publish with purge', async () => {
+    const calls: { method: string; path: string; body: unknown }[] = [];
+    const { deps, out, err } = harness({
+      request: async (method: string, path: string, opts: { body?: unknown } = {}) => {
+        calls.push({ method, path, body: opts.body });
+        return {};
+      },
+    } as unknown as Partial<ForumulateClient>);
     expect(await run(['publish', 'o', 's', 'p1'], deps)).toBe(0);
-    expect(called).toBe('p1');
+    expect(calls).toEqual([
+      { method: 'POST', path: '/orgs/o/spaces/s/pages/p1/publish', body: { purge: 'page' } },
+    ]);
     expect(out.join('\n')).toContain('Published p1');
+    expect(err.join('\n')).toContain('deprecated');
   });
 
+  // FMU-D05: a 401 is the auth exit, 3.
   it('surfaces API errors as a non-zero exit', async () => {
-    const { deps, err } = harness({
-      auth: {
-        me: async () => {
-          throw { status: 401, code: 'auth.unauthenticated', message: 'no token' };
-        },
-      } as ForumulateClient['auth'],
-    });
-    expect(await run(['whoami'], deps)).toBe(1);
+    const { deps, err } = harness(
+      {
+        auth: {
+          me: async () => {
+            throw { status: 401, code: 'auth.unauthenticated', message: 'no token' };
+          },
+        } as ForumulateClient['auth'],
+      },
+      tokenEnv,
+    );
+    expect(await run(['whoami'], deps)).toBe(3);
     expect(err.join('\n')).toContain('Error 401 (auth.unauthenticated): no token');
   });
 
   it('rejects an unknown command', async () => {
     const { deps, err } = harness({});
-    expect(await run(['frobnicate'], deps)).toBe(1);
+    // FMU-D05: an unknown command is a usage error, exit 2.
+    expect(await run(['frobnicate'], deps)).toBe(2);
     expect(err.join('\n')).toContain('Unknown command: frobnicate');
   });
 });
@@ -304,7 +330,8 @@ describe('login and logout', () => {
       baseUrl: 'https://api.example.com',
       env,
     });
-    expect(code).toBe(1);
+    // FMU-D05: the API refusing the token is the auth exit, 3.
+    expect(code).toBe(3);
     expect(resolveToken('https://api.example.com', env)).toBeUndefined();
   });
 });

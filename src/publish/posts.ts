@@ -3,7 +3,8 @@ import { differingKeys, holds, sameText } from './compare';
 import { spacePath, type SpaceCtx } from './context';
 import { idemKey } from './api';
 import { knownUrls, uploadAssetsFor } from './docs-apply';
-import { rewriteAssets, rewriteLinks, rewriteValue } from './rewrite';
+import { mediaChanged, rewriteAssets, rewriteLinks, rewriteValue } from './rewrite';
+import { textDiff } from './diff';
 import { tagKey } from './scan';
 import type { LivePost, LocalPost } from './types';
 
@@ -45,6 +46,8 @@ const BLOG_EXTRAS = [
   'customization',
   'featured',
   'pinned',
+  // The post's kind (`drop`, `roundup`, R-N1/R-N9): its declared fields follow.
+  'kind',
 ];
 const CHANGELOG_EXTRAS = [
   'version',
@@ -130,7 +133,8 @@ export function postPayload(
   if (shape.sections.length) {
     const sections: Record<string, string> = {};
     for (const s of shape.sections) {
-      const hit = lower.get(s.key.toLowerCase());
+      // Folded like the front matter keys above, so `short_answer:` fills `short-answer`.
+      const hit = lower.get(s.key.toLowerCase().replace(/[-_]/g, ''));
       if (hit && typeof hit[1] === 'string') {
         sections[s.key] = hit[1];
         used.add(hit[0]);
@@ -192,11 +196,10 @@ export function postPayload(
   }
   if (Object.keys(fields).length) {
     if (kind === 'items') body.params = fields;
-    else if (kind === 'changelog')
-      extras.fields = { ...((extras.fields as object) ?? {}), ...fields };
-    // A blog's declared parameters that are not columns of the blog door
-    // (`canonicalUrl`, `coverPlacement`) have no field to land in there.
-    else unknown.push(...Object.keys(fields).map((k) => `${k} (set it in the studio)`));
+    // The changelog and blog doors both take a piece's declared parameters as
+    // `fields` (the blog's since the release newsroom, R-N1: `releaseDate`,
+    // `sku`, `retailers` are front matter like any other key).
+    else extras.fields = { ...((extras.fields as object) ?? {}), ...fields };
   }
   // A blog without declared sections still has an excerpt; `description` is
   // what most tools call it.
@@ -237,6 +240,15 @@ export async function publishPosts(
     : new Map(scoped.map((p) => [p.file, knownUrls(ctx, existingAssets)(p.file)]));
   const matched = new Set<string>();
   const base = kind === 'items' ? '/items' : `/${kind}`;
+  const kindShapes = new Map<string, Promise<typeof shape>>();
+  const shapeOf = (k: string) => {
+    if (!kindShapes.has(k))
+      kindShapes.set(
+        k,
+        ctx.api.shape(ctx.org, ctx.spaceId, k).catch(() => shape),
+      );
+    return kindShapes.get(k)!;
+  };
 
   for (const post of scoped) {
     const found =
@@ -244,7 +256,10 @@ export async function publishPosts(
       (kind === 'changelog' ? byTitle.get(post.title.toLowerCase()) : undefined);
     if (found) matched.add(found.id);
     const fileUrls = urls.get(post.file) ?? new Map<string, string>();
-    const pay = postPayload(post, kind, shape, ctx, fileUrls);
+    // A post that names its kind is judged by that kind's shape, so its
+    // declared keys (a drop's `releaseDate`, `retailers`) are sent, not dropped.
+    const own = kindOfPost(post.front, kind);
+    const pay = postPayload(post, kind, own ? await shapeOf(own) : shape, ctx, fileUrls);
     if (pay.unknown.length)
       ctx.line({
         verb: 'warn',
@@ -266,20 +281,29 @@ export async function publishPosts(
       continue;
     }
     const reasons: string[] = [];
+    let diff: string[] = [];
     if (ctx.force) reasons.push('--force');
     if (found.title !== post.title) reasons.push('title');
     if (!reasons.length && live) {
       const sections = pay.body.sections as Record<string, string> | undefined;
-      const same =
-        sections && found.sections && Object.keys(found.sections).length
-          ? Object.entries(sections).every(([k, v]) => sameText(v, found.sections?.[k] ?? ''))
-          : sameText(
-              String(
-                pay.body.markdown ?? pay.body.body ?? Object.values(sections ?? {}).join('\n\n'),
-              ),
-              found.markdown ?? '',
-            );
-      if (!same) reasons.push('content');
+      if (sections && found.sections && Object.keys(found.sections).length) {
+        const changed = Object.entries(sections).filter(
+          ([k, v]) => !sameText(v, found.sections?.[k] ?? ''),
+        );
+        if (changed.length) reasons.push('content');
+        diff = changed.flatMap(([k, v]) => [`@ ${k}`, ...textDiff(found.sections?.[k] ?? '', v)]);
+      } else {
+        const text = String(
+          pay.body.markdown ?? pay.body.body ?? Object.values(sections ?? {}).join('\n\n'),
+        );
+        if (!sameText(text, found.markdown ?? '')) {
+          reasons.push('content');
+          diff = textDiff(found.markdown ?? '', text);
+        }
+      }
+      const liveText = found.markdown ?? Object.values(found.sections ?? {}).join('\n');
+      if (!reasons.length && mediaChanged(post.body, ctx.scan.refs.get(post.file), fileUrls, liveText))
+        reasons.push('media');
     }
     const extrasDiff =
       Object.keys(pay.extras).length && ctx.api.opts.authed
@@ -292,6 +316,7 @@ export async function publishPosts(
       verb: 'update',
       what: `post ${post.slug}`,
       detail: `${reasons.join(', ')} ← ${post.file}`,
+      ...(diff.length ? { diff } : {}),
     });
     if (!apply) continue;
     await updatePost(ctx, kind, base, found, pay, reasons);
@@ -307,7 +332,8 @@ export async function publishPosts(
     });
     return;
   }
-  const keep = new Set(ctx.spec.keep ?? []);
+  // A file marked `draft: true` still owns its post: it is never pruned.
+  const keep = new Set([...(ctx.spec.keep ?? []), ...ctx.scan.drafts]);
   for (const p of live) {
     if (matched.has(p.id) || keep.has(p.slug)) continue;
     ctx.line({ verb: 'prune', what: `post ${p.slug}`, detail: 'no file — deleted (recoverable)' });
@@ -420,4 +446,11 @@ async function extrasChanged(
     if ((typeof byline === 'string' ? byline : byline?.name) === want.author) delete want.author;
   }
   return differingKeys(current, want);
+}
+
+/** The kind a blog post's front matter names (`kind: drop`), which the blog door takes. */
+function kindOfPost(front: Record<string, unknown>, door: Kind): string | undefined {
+  if (door !== 'blog') return undefined;
+  const v = front.kind;
+  return typeof v === 'string' && v.trim() ? v.trim() : undefined;
 }

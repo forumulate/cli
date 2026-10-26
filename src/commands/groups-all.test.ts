@@ -65,11 +65,16 @@ describe('every resource command', () => {
       const required = (op.q ?? [])
         .filter((p) => p.r && p.in === 'query' && !(v.args ?? []).includes(p.n))
         .flatMap((p) => [`--${p.n}`, 'x']);
+      // A verb that refuses to run without one of its fields gets one.
+      const one = v.requireOne?.length
+        ? ['--data', JSON.stringify({ [v.requireOne[0]!]: 'x' })]
+        : [];
       const argv = [
         g.name,
         ...verb.split(' '),
         ...args,
         ...required,
+        ...one,
         '--space',
         SPACE_ID,
         '--library',

@@ -16,6 +16,7 @@ export interface Parsed {
 /** Flags that never take a value. */
 export const SWITCHES = new Set([
   'json',
+  'jsonl',
   'paginate',
   'yes',
   'y',

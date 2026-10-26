@@ -1,5 +1,8 @@
 import { sameText } from './compare';
 import type { SpaceCtx } from './context';
+import { textDiff } from './diff';
+import { mainSlot } from './slots';
+import { mediaChanged } from './rewrite';
 import type { LiveCollection, LivePage, LocalCollection, LocalPage } from './types';
 
 /**
@@ -16,6 +19,11 @@ export interface DocsPlan {
   moves: { page: LivePage; to: LocalCollection }[];
   /** Per collection, the files to send to the importer. */
   sends: Map<LocalCollection, { page: LocalPage; why: 'create' | 'update' }[]>;
+  /**
+   * Pages whose front matter fills named slots: written through the page's
+   * markdown door after the import (which places a new one), then published.
+   */
+  slotWrites: LocalPage[];
   prunePages: LivePage[];
   pruneCollections: LiveCollection[];
   unchanged: number;
@@ -58,14 +66,39 @@ export function matchCollections(
   return out;
 }
 
-/** How a live page's body is read for comparison: one walk authenticated, per page otherwise. */
-export type BodyOf = (page: LivePage) => Promise<string | null>;
+/**
+ * How a live page's body is read for comparison: one walk authenticated, per
+ * page otherwise. `sections` is the page's named slots (empty without a token).
+ */
+export type BodyOf = (
+  page: LivePage,
+) => Promise<{ markdown: string; sections: Record<string, string> } | null>;
+
+/** Which of a slotted page's slots differ from the live page's. */
+function slotsDiffer(
+  ctx: SpaceCtx,
+  p: LocalPage,
+  live: { markdown: string; sections: Record<string, string> },
+): string[] {
+  const main = mainSlot(ctx.slots ?? [])?.key;
+  const flat = !Object.keys(live.sections).length;
+  return Object.entries(p.sections)
+    .filter(([k, v]) => {
+      // A page written before it had slots holds its words outside any slot:
+      // that is the main slot's content as far as a reader can tell.
+      const was = live.sections[k] ?? (flat && k === main ? live.markdown : '');
+      return !sameText(v, was);
+    })
+    .map(([k]) => k);
+}
 
 export async function planDocs(
   ctx: SpaceCtx,
   live: DocsLive,
   bodyOf: BodyOf,
   openapiCollections: Set<string>,
+  /** Per file: reference → the URL already uploaded for it (see `mediaChanged`). */
+  urlsFor: (file: string) => Map<string, string> = () => new Map(),
 ): Promise<DocsPlan> {
   const { scan, spec, only } = ctx;
   const collectionOf = matchCollections(scan.collections, live.collections, spec.rootCollection);
@@ -75,6 +108,7 @@ export async function planDocs(
     patchCollections: [],
     moves: [],
     sends: new Map(),
+    slotWrites: [],
     prunePages: [],
     pruneCollections: [],
     unchanged: 0,
@@ -125,9 +159,15 @@ export async function planDocs(
     const sends: { page: LocalPage; why: 'create' | 'update' }[] = [];
     for (const p of scoped) {
       const existing = bySlug.get(p.slug);
+      const slotted = Object.keys(p.sections).length > 0;
       if (!existing) {
         sends.push({ page: p, why: 'create' });
-        ctx.line({ verb: 'create', what: `page ${p.slug}`, detail: `← ${p.file}` });
+        if (slotted) plan.slotWrites.push(p);
+        ctx.line({
+          verb: 'create',
+          what: `page ${p.slug}`,
+          detail: `← ${p.file}${slotted ? `  (${Object.keys(p.sections).join(', ')})` : ''}`,
+        });
         continue;
       }
       if (target && existing.collectionId !== target.id) {
@@ -143,20 +183,43 @@ export async function planDocs(
         continue;
       }
       const reasons: string[] = [];
+      let diff: string[] | undefined;
       if (ctx.force) reasons.push('--force');
       if (!existing.published) reasons.push('not published');
       if (existing.title !== p.title) reasons.push(`title "${existing.title}" → "${p.title}"`);
-      if (!reasons.length) {
+      if (!reasons.length || slotted) {
         const liveBody = await bodyOf(existing);
         if (liveBody === null) reasons.push('content not readable');
-        else if (!sameText(p.body, liveBody)) reasons.push('content');
+        else if (slotted) {
+          const changed = slotsDiffer(ctx, p, liveBody);
+          if (changed.length) {
+            reasons.push(changed.join(', '));
+            diff = changed.flatMap((k) => [
+              `@ ${k}`,
+              ...textDiff(liveBody.sections[k] ?? '', p.sections[k] ?? ''),
+            ]);
+          }
+        } else if (!sameText(p.body, liveBody.markdown)) {
+          reasons.push('content');
+          diff = textDiff(liveBody.markdown, p.body);
+        }
+        if (
+          liveBody &&
+          !reasons.length &&
+          mediaChanged(p.body, ctx.scan.refs.get(p.file), urlsFor(p.file), liveBody.markdown)
+        )
+          reasons.push('media');
       }
       if (reasons.length) {
-        sends.push({ page: p, why: 'update' });
+        // A slotted page is rewritten through its own markdown door; the
+        // importer would flatten its slots into one document.
+        if (slotted) plan.slotWrites.push(p);
+        else sends.push({ page: p, why: 'update' });
         ctx.line({
           verb: 'update',
           what: `page ${p.slug}`,
           detail: `${reasons.join(', ')} ← ${p.file}`,
+          ...(diff?.length ? { diff } : {}),
         });
       } else plan.unchanged++;
     }
@@ -197,7 +260,9 @@ function planPrune(
     });
     return;
   }
-  const keep = new Set(ctx.spec.keep ?? []);
+  // A file marked `draft: true` still owns its address: marking a live page as
+  // a draft must not send it to the trash.
+  const keep = new Set([...(ctx.spec.keep ?? []), ...ctx.scan.drafts]);
   const wanted = new Set(ctx.scan.collections.flatMap((c) => c.pages.map((p) => p.slug)));
   const managed = new Set([...plan.collectionOf.values()].filter(Boolean).map((c) => c!.id));
   const protectedCols = new Set(

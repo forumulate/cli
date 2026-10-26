@@ -1,118 +1,95 @@
 import { existsSync, readdirSync, readFileSync, statSync } from 'node:fs';
-import { basename, dirname, extname, join, posix, relative, resolve, sep } from 'node:path';
+import { basename, dirname, extname, join, relative, resolve, sep } from 'node:path';
 import { parse as parseYaml } from 'yaml';
-import { declaredOrder, isDraft, pageMeta, splitFront } from './frontmatter';
-import type { LocalCollection, LocalPage, LocalSpace, SpaceSpec } from './types';
+import { isDraft, splitFront } from './frontmatter';
+import { ASSET, DATED, MD, NUMERIC, slugify, titleOf, VERSION } from './names';
+import { ignoreMatcher, isReadme, MANIFEST_NAMES, reservedReason } from './reserved';
+import { scanDocs } from './scan-docs';
+import type { Slot } from './slots';
+import type { Reader, ScanResult, SpaceSpec, TagSpec } from './types';
 
 /**
  * A folder on disk, read into what it would publish.
  *
- * Docs: one top-level folder per collection, files at the root in the root
- * collection, nested folders as parent pages (the folder's `index.md` or
- * `README.md` is the parent; a folder without one gets a title-only stub so its
- * children still have somewhere to hang). Everything else — blog, changelog,
- * any type whose pieces are posts — is a flat set of posts, folders or not.
+ * Docs are walked in `scan-docs.ts` (collections, nesting, folder pages).
+ * Everything else — blog, changelog, any type whose pieces are posts — is a
+ * flat set of posts, folders or not. Both go through the same skip rules
+ * (`reserved.ts`) and the same reader, which records the local files each
+ * document points at for upload.
  */
-
-const MD = /\.(md|mdx|markdown)$/i;
-/** What a reference may point at to be uploaded rather than linked. */
-const ASSET = /\.(png|jpe?g|gif|webp|svg|avif|ico|pdf|mp4|webm|mp3|zip)$/i;
-export const MANIFEST_NAMES = ['forumulate.yaml', 'forumulate.yml', 'forumulate.json'];
-const NUMERIC = /^(\d+)[-_. ]+/;
-const DATED = /^(\d{4}-\d{2}-\d{2})[-_]/;
-const BIG = Number.MAX_SAFE_INTEGER;
-
-/** The product's slug rule (packages/shared `slugify`), mirrored: this package ships alone. */
-export function slugify(input: string, fallback = 'page', max = 70): string {
-  return (
-    input
-      .normalize('NFC')
-      .toLowerCase()
-      .normalize('NFD')
-      .replace(/[̀-ͯ]/g, '')
-      .normalize('NFC')
-      .replace(/[^\p{Letter}\p{Number}]+/gu, '-')
-      .replace(/^-+|-+$/g, '')
-      .slice(0, max)
-      .replace(/-+$/, '') || fallback
-  );
-}
+export { slugify, tagKey, titleize } from './names';
+export type { ScanResult } from './types';
+export type { ScanShape };
+export { MANIFEST_NAMES };
 
 /**
- * The product's TAG rule (apps/api `normalizeTag`), mirrored for the same reason
- * as `slugify`. Used to compare a front-matter tag list with the stored one: an
- * ASCII-only fold here turned every Japanese or Cyrillic tag into `-`, so two
- * different non-Latin tag lists compared equal and the update was skipped.
+ * What a folder walk leaves out: the reserved names (`reserved.ts`) and the
+ * manifest's `ignore:` globs. A Markdown file left out is RECORDED, so the
+ * plan can say "skip README.md (repository paperwork)" — a file that quietly
+ * does not publish is the report every customer filed about their own
+ * publisher's skip list.
  */
-export function tagKey(raw: string): string {
-  const t = String(raw ?? '')
-    .normalize('NFC')
-    .toLowerCase()
-    .normalize('NFD')
-    .replace(/[\u0300-\u036f]/g, '')
-    .normalize('NFC')
-    .replace(/[^\p{Letter}\p{Number}+#.-]+/gu, '-')
-    .replace(/^[-#]+/, '')
-    .replace(/^\.+(?![\p{Letter}\p{Number}])/u, '')
-    .replace(/^[-#]+/, '')
-    .replace(/[-.]+$/, '');
-  if (!/[\p{Letter}\p{Number}]/u.test(t)) return '';
-  return t.slice(0, 60).replace(/[-.]+$/, '');
+interface Skipper {
+  /** True when `name` (in the folder `abs`) is not content. */
+  (abs: string, name: string): boolean;
+  readmeIsIndex: boolean;
 }
 
-/** `02-getting-started` → `Getting Started`. */
-export function titleize(name: string): string {
-  const bare = name.replace(NUMERIC, '').replace(/[-_]+/g, ' ').trim();
-  return bare.replace(/\b\p{Letter}/gu, (c) => c.toUpperCase()) || name;
+function skipperFor(out: ScanResult, spec: SpaceSpec, kind: 'docs' | 'posts'): Skipper {
+  const readmeIsIndex = kind === 'docs' && spec.readme !== 'skip';
+  const ignored = ignoreMatcher(spec.ignore);
+  const recorded = new Set<string>();
+  const skip = ((abs: string, name: string) => {
+    const full = join(abs, name);
+    let isDir = false;
+    try {
+      isDir = statSync(full).isDirectory();
+    } catch {
+      return true;
+    }
+    const rel = relative(out.absDir, full).split(sep).join('/');
+    const reason =
+      reservedReason(name, isDir, readmeIsIndex) ?? (ignored(rel) ? 'ignore: in the manifest' : null);
+    if (!reason) return false;
+    // Folders are reported once by name when they would have held content.
+    if ((MD.test(name) || (isDir && !name.startsWith('.') && name !== 'node_modules')) && !recorded.has(rel)) {
+      recorded.add(rel);
+      out.skipped.push({ file: isDir ? `${rel}/` : rel, reason });
+    }
+    return true;
+  }) as Skipper;
+  skip.readmeIsIndex = readmeIsIndex;
+  return skip;
 }
 
-const isIndex = (file: string) => /^(index|readme)\.(md|mdx|markdown)$/i.test(basename(file));
-const skipEntry = (name: string) =>
-  name.startsWith('.') ||
-  name.startsWith('_') ||
-  name === 'node_modules' ||
-  MANIFEST_NAMES.includes(name);
+const isIndexName = (file: string, readmeIsIndex: boolean) =>
+  /^index\.(md|mdx|markdown)$/i.test(basename(file)) || (readmeIsIndex && isReadme(basename(file)));
 
-/** `[n, name]` from a numeric prefix, or "no position" sorted by name. */
-function prefixOrder(name: string): [number, string] {
-  const m = NUMERIC.exec(name);
-  return [m ? Number(m[1]) : BIG, name.replace(NUMERIC, '').toLowerCase()];
-}
-
-function hasMarkdown(dir: string): boolean {
+function hasMarkdown(dir: string, skip: Skipper): boolean {
   for (const e of readdirSync(dir)) {
-    if (skipEntry(e)) continue;
+    if (skip(dir, e)) continue;
     const p = join(dir, e);
-    if (statSync(p).isDirectory() ? hasMarkdown(p) : MD.test(e)) return true;
+    if (statSync(p).isDirectory() ? hasMarkdown(p, skip) : MD.test(e)) return true;
   }
   return false;
 }
 
-/** `_collection.yml` / `.yaml` / `.json` beside a collection's files. */
-function folderMeta(dir: string): Record<string, unknown> {
-  for (const n of ['_collection.yml', '_collection.yaml', '_collection.json']) {
+/** `_tags.yml` / `.yaml` / `.json` at the top of a space folder: its blog categories. */
+function tagsFile(dir: string): Record<string, TagSpec> {
+  for (const n of ['_tags.yml', '_tags.yaml', '_tags.json']) {
     const p = join(dir, n);
-    if (existsSync(p)) return (parseYaml(readFileSync(p, 'utf8')) ?? {}) as Record<string, unknown>;
+    if (!existsSync(p)) continue;
+    const raw = parseYaml(readFileSync(p, 'utf8')) as unknown;
+    if (raw === null || raw === undefined) return {};
+    if (typeof raw !== 'object' || Array.isArray(raw))
+      throw new Error(`${n}: must be a map of tag slug → how it looks`);
+    return raw as Record<string, TagSpec>;
   }
   return {};
 }
 
-/** The title a page will get: front matter, else the leading `# heading` (the importer's rule). */
-function titleOf(front: Record<string, unknown>, body: string, fallback: string): string {
-  if (typeof front.title === 'string' && front.title.trim()) return front.title.trim();
-  const first = body.split(/\r?\n/).find((l) => l.trim());
-  const h1 = first && /^#\s+(.+?)\s*#*\s*$/.exec(first);
-  // A title is stored as plain text: the importer keeps the heading's words and
-  // drops its marks, so `` `required` `` comes back as `required`.
-  const plain = h1?.[1]
-    ?.replace(/!?\[([^\]]*)\]\([^)]*\)/g, '$1')
-    .replace(/[`*_~]/g, '')
-    .trim();
-  return plain || fallback;
-}
-
 /** Local files a document points at — images, PDFs — resolved from its own folder. */
-function assetRefs(
+export function assetRefs(
   text: string,
   fileDir: string,
   front: Record<string, unknown>,
@@ -122,7 +99,12 @@ function assetRefs(
     const clean = ref.trim().replace(/^<|>$/g, '').split(/[?#]/)[0]!;
     if (!clean || /^[a-z][a-z0-9+.-]*:/i.test(clean) || clean.startsWith('/') || !ASSET.test(clean))
       return;
-    const abs = resolve(fileDir, decodeURI(clean));
+    let abs: string;
+    try {
+      abs = resolve(fileDir, decodeURI(clean));
+    } catch {
+      return; // a malformed %-escape is a reference to nothing on disk
+    }
     if (existsSync(abs) && statSync(abs).isFile()) refs.set(ref.trim(), abs);
   };
   for (const m of text.matchAll(/!?\[[^\]]*\]\(\s*(<[^>]+>|[^)\s]+)/g)) consider(m[1]!);
@@ -136,11 +118,12 @@ function assetRefs(
   return refs;
 }
 
-export interface ScanResult extends LocalSpace {
-  /** Per file (relative to the space folder): reference as written → absolute asset path. */
-  refs: Map<string, Map<string, string>>;
-  /** Every Markdown file of the space (relative to the space folder) → its slug. */
-  slugByFile: Map<string, string>;
+/** What the space's type declares, as far as reading a folder needs it. */
+interface ScanShape {
+  /** Declared parameters (`audience`, `topic`, …): front matter keys that go to `fields`. */
+  fieldKeys: string[];
+  /** Declared slots of a page-backed type, for front matter that fills them. */
+  slots?: Slot[];
 }
 
 /** Read one space folder. `kind` decides whether its files are pages or posts. */
@@ -148,8 +131,9 @@ export function scanSpace(
   root: string,
   spec: SpaceSpec,
   kind: 'docs' | 'posts',
-  fieldKeys: string[],
+  shape: ScanShape | string[],
 ): ScanResult {
+  const { fieldKeys, slots = [] } = Array.isArray(shape) ? { fieldKeys: shape } : shape;
   const absDir = resolve(root, spec.path || '.');
   const out: ScanResult = {
     dir: spec.path || '',
@@ -158,6 +142,9 @@ export function scanSpace(
     posts: [],
     assets: new Set(),
     warnings: [],
+    drafts: new Set(),
+    skipped: [],
+    tags: {},
     refs: new Map(),
     slugByFile: new Map(),
   };
@@ -165,7 +152,12 @@ export function scanSpace(
     out.warnings.push(`${absDir} is not a folder`);
     return out;
   }
-  const read = (abs: string) => {
+  try {
+    out.tags = tagsFile(absDir);
+  } catch (e) {
+    throw new Error(`${spec.path || '.'}/${(e as Error).message}`);
+  }
+  const read: Reader = (abs: string) => {
     const text = readFileSync(abs, 'utf8');
     const rel = relative(absDir, abs).split(sep).join('/');
     try {
@@ -178,51 +170,51 @@ export function scanSpace(
       throw new Error(`${rel}: ${(e as Error).message}`);
     }
   };
-  if (kind === 'posts') scanPosts(absDir, out, read);
-  else scanDocs(absDir, spec, out, read, fieldKeys);
+  const skip = skipperFor(out, spec, kind);
+  if (kind === 'posts') scanPosts(absDir, out, read, skip);
+  else
+    scanDocs(absDir, spec, out, read, {
+      fieldKeys,
+      slots,
+      skip,
+      hasMarkdown: (d) => hasMarkdown(d, skip),
+      isIndex: (f) => isIndexName(f, skip.readmeIsIndex),
+    });
   return out;
 }
 
-type Reader = (abs: string) => {
-  rel: string;
-  text: string;
-  data: Record<string, unknown>;
-  body: string;
-};
-
-function scanPosts(absDir: string, out: ScanResult, read: Reader): void {
+function scanPosts(absDir: string, out: ScanResult, read: Reader, skip: Skipper): void {
   const walk = (dir: string) => {
     for (const e of readdirSync(dir).sort()) {
-      if (skipEntry(e)) continue;
+      // README (anywhere: a posts folder has no folder pages), `_drafts/`,
+      // dotfiles, the manifest and `ignore:` — see reserved.ts.
+      if (skip(dir, e)) continue;
       const abs = join(dir, e);
       if (statSync(abs).isDirectory()) {
         walk(abs);
         continue;
       }
       if (!MD.test(e)) continue;
-      // A README at the top of a blog folder is a note about the folder.
-      if (dir === absDir && /^readme\./i.test(e)) {
-        out.warnings.push(
-          `${e}: skipped — a README at the top of a posts folder is a note, not a post`,
-        );
-        continue;
-      }
       const f = read(abs);
+      const stem = e.replace(MD, '');
+      // A version-shaped name (`2-4-0.md`, `1.10.md`) IS the address, not an
+      // ordering prefix in front of one: stripping "2-" left a release at `4-0`.
+      const bare = stem.replace(DATED, '');
+      const slug =
+        typeof f.data.slug === 'string' && f.data.slug.trim()
+          ? slugify(f.data.slug)
+          : slugify(VERSION.test(bare) ? bare : bare.replace(NUMERIC, ''));
       if (isDraft(f.data)) {
-        out.warnings.push(`${f.rel}: draft — left out`);
+        out.drafts.add(slug);
+        out.warnings.push(`${f.rel}: draft — left out (and kept if it is live)`);
         continue;
       }
-      const stem = e.replace(MD, '');
       const dated = DATED.exec(stem);
       const front = { ...f.data };
       if (dated && front.publishedAt === undefined && front.date === undefined)
         front.publishedAt = dated[1];
       if (front.date !== undefined && front.publishedAt === undefined)
         front.publishedAt = front.date;
-      const slug =
-        typeof f.data.slug === 'string' && f.data.slug.trim()
-          ? slugify(f.data.slug)
-          : slugify(stem.replace(DATED, '').replace(NUMERIC, ''));
       out.slugByFile.set(f.rel, slug);
       out.posts.push({
         file: f.rel,
@@ -235,195 +227,6 @@ function scanPosts(absDir: string, out: ScanResult, read: Reader): void {
     }
   };
   walk(absDir);
-}
-
-function scanDocs(
-  absDir: string,
-  spec: SpaceSpec,
-  out: ScanResult,
-  read: Reader,
-  fieldKeys: string[],
-): void {
-  const rootName = spec.rootCollection ?? '';
-  const rootFiles: string[] = [];
-  const folders: string[] = [];
-  for (const e of readdirSync(absDir).sort()) {
-    if (skipEntry(e)) continue;
-    const abs = join(absDir, e);
-    if (statSync(abs).isDirectory()) {
-      if (hasMarkdown(abs)) folders.push(e);
-    } else if (MD.test(e)) rootFiles.push(e);
-  }
-  if (rootFiles.length) {
-    out.collections.push(
-      collectionOf(
-        absDir,
-        '',
-        rootName ? slugify(rootName) : '',
-        rootName,
-        [-1, ''],
-        {},
-        out,
-        read,
-        fieldKeys,
-        rootFiles,
-      ),
-    );
-  }
-  for (const name of folders) {
-    const abs = join(absDir, name);
-    const declared = { ...folderMeta(abs), ...(spec.collections?.[name] ?? {}) };
-    const [n, key] = prefixOrder(name);
-    const order: [number, string] = [typeof declared.order === 'number' ? declared.order : n, key];
-    const slug =
-      typeof declared.slug === 'string'
-        ? slugify(declared.slug)
-        : slugify(name.replace(NUMERIC, ''));
-    const title = typeof declared.name === 'string' ? declared.name : titleize(name);
-    out.collections.push(
-      collectionOf(
-        abs,
-        name,
-        slug,
-        title,
-        order,
-        (declared.nav ?? undefined) as Record<string, unknown>,
-        out,
-        read,
-        fieldKeys,
-      ),
-    );
-  }
-  out.collections.sort((a, b) => a.order[0] - b.order[0] || a.order[1].localeCompare(b.order[1]));
-}
-
-function collectionOf(
-  abs: string,
-  dir: string,
-  slug: string,
-  name: string,
-  order: [number, string],
-  nav: Record<string, unknown> | undefined,
-  out: ScanResult,
-  read: Reader,
-  fieldKeys: string[],
-  onlyFiles?: string[],
-): LocalCollection {
-  const col: LocalCollection = { dir, slug, name, order, nav, pages: [] };
-  /**
-   * Walk one folder. `own` is the page that stands for this folder (its files
-   * nest under it; null at the collection's top) and `above` is the page that
-   * one nests under — which is where the folder's own index file hangs.
-   */
-  const walk = (folder: string, rel: string, own: string | null, above: string | null) => {
-    const entries = (onlyFiles ?? readdirSync(folder).sort()).filter((e) => !skipEntry(e));
-    const files = entries.filter((e) => MD.test(e) && !statSync(join(folder, e)).isDirectory());
-    const dirs = onlyFiles
-      ? []
-      : entries.filter(
-          (e) => statSync(join(folder, e)).isDirectory() && hasMarkdown(join(folder, e)),
-        );
-    const index = rel ? files.find(isIndex) : undefined;
-    for (const f of files) {
-      const parentSlug = f === index ? above : own;
-      const page = pageOf(
-        join(folder, f),
-        rel ? `${rel}/${f}` : f,
-        rel,
-        f === index,
-        parentSlug,
-        slug,
-        out,
-        read,
-        fieldKeys,
-      );
-      if (page) col.pages.push(page);
-    }
-    for (const d of dirs) {
-      const sub = join(folder, d);
-      const subRel = rel ? `${rel}/${d}` : d;
-      const subFiles = readdirSync(sub).filter((e) => !skipEntry(e) && MD.test(e));
-      const subIndex = subFiles.find(isIndex);
-      let folderSlug: string;
-      if (subIndex) {
-        // The index decides the folder page's address; read it once for that.
-        const { data } = splitFront(readFileSync(join(sub, subIndex), 'utf8'));
-        folderSlug =
-          typeof data.slug === 'string' && data.slug.trim()
-            ? slugify(data.slug)
-            : slugify(d.replace(NUMERIC, ''));
-      } else {
-        folderSlug = slugify(d.replace(NUMERIC, ''));
-        const title = titleize(d);
-        col.pages.push({
-          file: `${relative(out.absDir, sub).split(sep).join('/')}/ (no index.md)`,
-          importName: `${subRel}/index.md`,
-          slug: folderSlug,
-          parentSlug: own,
-          order: prefixOrder(d),
-          title,
-          source: `---\ntitle: ${JSON.stringify(title)}\nslug: ${folderSlug}\n---\n`,
-          body: '',
-          meta: {},
-          unknown: [],
-          stub: true,
-        });
-      }
-      walk(sub, subRel, folderSlug, own);
-    }
-  };
-  walk(abs, '', null, null);
-  return col;
-}
-
-function pageOf(
-  abs: string,
-  importName: string,
-  rel: string,
-  isFolderIndex: boolean,
-  parentSlug: string | null,
-  collectionSlug: string,
-  out: ScanResult,
-  read: Reader,
-  fieldKeys: string[],
-): LocalPage | null {
-  const f = read(abs);
-  if (isDraft(f.data)) {
-    out.warnings.push(`${f.rel}: draft — left out`);
-    return null;
-  }
-  const name = basename(abs);
-  const stem = name.replace(MD, '');
-  const declaredSlug =
-    typeof f.data.slug === 'string' && f.data.slug.trim() ? slugify(f.data.slug) : '';
-  const folder = posix.basename(rel);
-  const atCollectionTop = isIndex(name) && !rel;
-  const slug =
-    declaredSlug ||
-    (isFolderIndex
-      ? slugify(folder.replace(NUMERIC, ''))
-      : atCollectionTop
-        ? collectionSlug || slugify(titleOf(f.data, f.body, 'overview'))
-        : slugify(stem.replace(NUMERIC, '')));
-  const { meta, unknown } = pageMeta(f.data, fieldKeys);
-  const n = declaredOrder(f.data);
-  const [prefixN, key] = prefixOrder(isFolderIndex ? folder : stem);
-  // A folder's index is ordered among the folder's siblings, by the folder's
-  // prefix; a collection's own index leads it unless it says otherwise.
-  const order: [number, string] = [n ?? (atCollectionTop ? -1 : prefixN), key];
-  out.slugByFile.set(f.rel, slug);
-  return {
-    file: f.rel,
-    importName,
-    slug,
-    parentSlug,
-    order,
-    title: titleOf(f.data, f.body, slug),
-    source: f.text,
-    body: f.body,
-    meta,
-    unknown,
-  };
 }
 
 /** Every relative path → posix, for comparing with `importName`s. */

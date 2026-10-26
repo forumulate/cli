@@ -1,7 +1,15 @@
 import { describe, it, expect } from 'vitest';
 import { existsSync, readFileSync } from 'node:fs';
 import path from 'node:path';
-import { runDoctor, READER_API_SEGMENT } from './doctor';
+import { runDoctor as runFullDoctor, READER_API_SEGMENT, BASE_CHECK_IDS } from './doctor';
+
+/**
+ * These tests are about the single-page checks; the site-wide ones (a sitemap
+ * crawl, llms.txt, …) have their own suite in doctor/extended.test.ts and would
+ * only add "no stub" failures to every table here.
+ */
+const runDoctor = (input: Parameters<typeof runFullDoctor>[0]) =>
+  runFullDoctor({ only: [...BASE_CHECK_IDS], ...input });
 
 type Reply = { status?: number; body?: string; headers?: Record<string, string> };
 

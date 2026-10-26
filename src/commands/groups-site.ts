@@ -43,6 +43,13 @@ export const SITE_GROUPS: GroupDef[] = [
     defaultVerb: 'get',
     verbs: {
       get: { op: 'SpaceSettings_getTheme', about: 'The live theme' },
+      // FMU-D08: what the reader renders, and the layer behind every key.
+      explain: {
+        op: 'SpaceSettings_getTheme',
+        about:
+          'The theme the reader renders and where each key comes from (space, site, brand, org, look, default)',
+        query: { view: 'effective' },
+      },
       set: { op: 'SpaceSettings_setTheme', about: 'Replace the live theme (--data @theme.json)' },
       patch: {
         op: 'SpaceSettings_patchTheme',
@@ -79,11 +86,17 @@ export const SITE_GROUPS: GroupDef[] = [
         about: 'Create a site (--slug, --spaceIds a,b)',
         args: ['name'],
       },
-      update: { op: 'Site_update', about: 'Change some of it (--dryRun true)', args: ['siteId'] },
+      update: {
+        op: 'Site_update',
+        about: 'Change some of it: deep-merges, arrays replace, null deletes (--dryRun true to preview)',
+        args: ['siteId'],
+      },
       replace: {
         op: 'Site_replace',
-        about: 'Replace its whole config (--data @site.json)',
+        about:
+          'Replace its WHOLE config from a full file (--data @site.json); shows the diff and asks unless --yes. Prefer `sites update`, which merges',
         args: ['siteId'],
+        previewFirst: 'dryRun',
       },
       delete: { op: 'Site_remove', about: 'Delete a site', args: ['siteId'], destructive: true },
       staging: {
@@ -131,6 +144,24 @@ export const SITE_GROUPS: GroupDef[] = [
         op: 'Site_removeDomain',
         about: 'Remove a domain',
         args: ['siteId', 'domainId'],
+        destructive: true,
+      },
+      // FMU-SI15: the site's brand file, a theme layer under the site theme.
+      'brand get': { op: 'SiteBrand_get', about: 'The brand file and what it maps to', args: ['siteId'] },
+      'brand set': {
+        op: 'SiteBrand_put',
+        about: 'Set the brand from a URL or a tokens file (--brandUrl https://… | --data @tokens.json)',
+        args: ['siteId'],
+      },
+      'brand refresh': {
+        op: 'SiteBrand_refresh',
+        about: 'Re-read the brand file now',
+        args: ['siteId'],
+      },
+      'brand remove': {
+        op: 'SiteBrand_remove',
+        about: 'Remove the brand layer (the site theme is untouched)',
+        args: ['siteId'],
         destructive: true,
       },
       'theme export': {
@@ -191,23 +222,23 @@ export const SITE_GROUPS: GroupDef[] = [
         about: 'One article as Markdown (--locale)',
         args: ['slug'],
       },
-      'blog search': { op: 'PublicBlog_search', about: 'Search the blog', args: ['q...'] },
-      'blog tags': { op: 'PublicBlog_tags', about: 'Its tags' },
-      'blog archive': { op: 'PublicBlog_archive', about: 'Articles by month' },
-      'blog series': { op: 'PublicBlog_series', about: 'Its series' },
+      'blog search': { op: 'PublicBlogBrowse_search', about: 'Search the blog', args: ['q...'] },
+      'blog tags': { op: 'PublicBlogBrowse_tags', about: 'Its tags' },
+      'blog archive': { op: 'PublicBlogBrowse_archive', about: 'Articles by month' },
+      'blog series': { op: 'PublicBlogBrowse_series', about: 'Its series' },
       'blog permalink': {
         op: 'PublicBlog_permalink',
         about: 'What an old or custom path resolves to',
         args: ['path'],
       },
-      'blog rss': { op: 'PublicBlog_rss', about: 'The RSS feed (rss.xml)', download: 'rss.xml' },
+      'blog rss': { op: 'PublicBlogFeeds_rss', about: 'The RSS feed (rss.xml)', download: 'rss.xml' },
       'blog feed': {
-        op: 'PublicBlog_rssAlias',
+        op: 'PublicBlogFeeds_rssAlias',
         about: 'The RSS feed at its feed.xml address',
         download: 'feed.xml',
       },
       'blog json-feed': {
-        op: 'PublicBlog_jsonFeed',
+        op: 'PublicBlogFeeds_json',
         about: 'The JSON Feed',
         download: 'feed.json',
       },
@@ -223,10 +254,18 @@ export const SITE_GROUPS: GroupDef[] = [
       status: { op: 'Github_status', about: 'The connection and its last sync' },
       connect: {
         op: 'Github_connect',
-        about: 'Connect a repo (--token, --branch, --path, --provider)',
+        about: 'Connect a repo (--token, --branch, --path, --provider, --contentSync)',
         args: ['repo'],
       },
       import: { op: 'Github_import', about: 'Pull the repository into the space now' },
+      // Content as code on our side (R-15): the same planner as `forumulate sync`.
+      sync: {
+        op: 'Github_runSync',
+        about: 'Run the content sync of the repository (a plan unless --dryRun false) [--wait]',
+        job: true,
+      },
+      runs: { op: 'Github_syncRuns', about: 'Recent content-sync runs' },
+      run: { op: 'Github_syncRun', about: 'One content-sync run, with its plan', args: ['runId'] },
       export: { op: 'Github_export', about: 'Push the space to the repository now' },
       'pull-request': {
         op: 'Github_pullRequest',

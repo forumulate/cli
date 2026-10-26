@@ -83,7 +83,8 @@ describe('orgs and spaces', () => {
 
   it('an unknown space slug names the ones that exist', async () => {
     const r = await cli(['items', 'list', '--space', 'nope']);
-    expect(r.code).toBe(1);
+    // FMU-D05: a space nothing answers to is "not found", exit 4.
+    expect(r.code).toBe(4);
     expect(r.err).toContain('No space "nope" in acme (it has: docs)');
   });
 });
@@ -285,7 +286,8 @@ describe('members, invites, webhooks, tokens, domains, libraries, search', () =>
     const r = await api.cli(['webhooks', 'list'], {
       env: { FORUMULATE_CONFIG_DIR: join(dir, 'empty') },
     });
-    expect(r.code).toBe(1);
+    // FMU-D05: a missing --org is a usage error, exit 2.
+    expect(r.code).toBe(2);
     expect(r.err).toContain('needs --org');
   });
 });

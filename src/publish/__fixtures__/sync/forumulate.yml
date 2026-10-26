@@ -1,0 +1,15 @@
+# One repository, four spaces — the fixture `sync.test.ts` publishes.
+org: o1
+spaces:
+  - path: blog
+    space: blog
+    tags:
+      releases: { colour: '#0A7F5A', description: 'Every release, in order' }
+  - path: docs
+    space: docs
+    readme: skip
+    ignore: ['*.wip.md']
+  - path: faq
+    space: faq
+  - path: changelog
+    space: changelog

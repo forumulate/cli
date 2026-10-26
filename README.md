@@ -21,7 +21,7 @@ forumulate login            # prompts for the token (not echoed), checks it, sto
 forumulate whoami
 ```
 
-The token is stored per API in `~/.config/forumulate/credentials.json`, readable only by you. In CI, set `FORUMULATE_TOKEN` instead; it always wins over a stored token.
+The token is stored per API in `~/.config/forumulate/credentials.json`, readable only by you. In CI, set `FORUMULATE_TOKEN` instead; it wins over a stored token. For one run, every command also takes `--token <pat>`, which wins over both: the precedence is `--token`, then `FORUMULATE_TOKEN`, then `credentials.json` (`forumulate whoami` prints which one it used). On the few operations with a `token` field of their own (`sdks registries set`, `github connect`, `domains acme-challenge`) `--token` is that field.
 
 | Variable             | Default                  | Meaning                                                                          |
 | -------------------- | ------------------------ | -------------------------------------------------------------------------------- |
@@ -145,10 +145,18 @@ forumulate publish ./docs --org acme --space docs --prune
 forumulate publish . --only getting-started,theme             # just these
 ```
 
+**1b. Sync a folder (content as code).** `forumulate sync <folder>` is the same engine as a plan by default: `--apply` writes it, `--diff` shows what changes inside each post or page, `--prune` removes what has no file. A `forumulate.yml` maps folders to spaces: blog posts, docs pages, FAQ questions (with `short-answer:` and `related:` slots), changelog releases and blog categories (`tags:` in the manifest or `_tags.yml`: label, colour, cover, icon, parent). Matched by slug, images uploaded once by content hash, `README`/`LICENSE`/`_drafts/`/dotfiles skipped — and a second run writes nothing. See [Content as code](https://forumulate.com/guides/content-as-code).
+
+```sh
+forumulate sync .                   # the plan
+forumulate sync . --diff            # the plan, with paragraph and field diffs
+forumulate sync . --apply --prune   # do it, read it back
+```
+
 **2. Publish one page by id.**
 
 ```sh
-forumulate publish acme <spaceId> <pageId>
+forumulate items publish <pageId> --org acme --space docs
 ```
 
 **3. Search docs, forum and blog together.**
@@ -188,7 +196,7 @@ Add `--json` to any command for raw JSON, `--version` for the version, and `foru
 
 ```yaml
 # GitHub Actions
-- run: npx -y @forumulate/cli publish acme ${{ vars.DOCS_SPACE_ID }} ./docs
+- run: npx -y @forumulate/cli publish ./docs --org acme --space ${{ vars.DOCS_SPACE_ID }}
   env:
     FORUMULATE_TOKEN: ${{ secrets.FORUMULATE_TOKEN }}
 - run: npx -y @forumulate/cli translations status --org acme --space docs --fail-on missing,outdated

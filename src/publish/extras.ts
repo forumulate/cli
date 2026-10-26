@@ -29,8 +29,28 @@ export async function syncSpace(ctx: SpaceCtx, apply: boolean): Promise<void> {
   const body: Record<string, unknown> = {};
   if (spec.name && spec.name !== space.name) body.name = spec.name;
   if (spec.visibility && spec.visibility !== space.visibility) body.visibility = spec.visibility;
-  const keys = spec.settings ? differingKeys(space.settings, spec.settings) : [];
-  if (keys.length) body.settings = Object.fromEntries(keys.map((k) => [k, spec.settings![k]]));
+  /*
+   * `settings.seo` has its own door. The space PATCH refuses the key and names
+   * `PUT …/seo` (./space-settings-doors in the API), so a manifest's
+   * `seo.description` — the very key the description warning below asks for —
+   * and its `seo.seoTitle` / `seo.pages` (SEO §3) failed the whole PATCH. The
+   * door merges key by key, so only the keys that differ are sent.
+   */
+  const { seo: wantSeo, ...wantSettings } = spec.settings ?? {};
+  const seoBody =
+    wantSeo && typeof wantSeo === 'object' && !Array.isArray(wantSeo)
+      ? (wantSeo as Record<string, unknown>)
+      : null;
+  const seoKeys = seoBody
+    ? differingKeys(space.settings.seo as Record<string, unknown> | undefined, seoBody)
+    : [];
+  if (seoKeys.length) {
+    ctx.line({ verb: 'patch', what: 'space seo', detail: seoKeys.map((k) => `seo.${k}`).join(', ') });
+    if (apply)
+      await ctx.api.put(spacePath(ctx, '/seo'), Object.fromEntries(seoKeys.map((k) => [k, seoBody![k]])));
+  }
+  const keys = spec.settings ? differingKeys(space.settings, wantSettings) : [];
+  if (keys.length) body.settings = Object.fromEntries(keys.map((k) => [k, wantSettings[k]]));
   if (!Object.keys(body).length) return;
   ctx.line({
     verb: 'patch',
@@ -41,6 +61,39 @@ export async function syncSpace(ctx: SpaceCtx, apply: boolean): Promise<void> {
     ].join(', '),
   });
   if (apply) await ctx.api.patch(spacePath(ctx, ''), body);
+}
+
+/**
+ * Warn when the space will publish with no description of its own (FMU-B08).
+ *
+ * The reader no longer makes one up ("Guides and reference, in a nested
+ * tree."), so a space with none falls back to the site's tagline — or to no
+ * meta description at all. Either may be what the owner wants; the plan says
+ * so before it ships rather than leaving them to find it in a search result.
+ * The manifest's own `settings.seo.description` counts: it is about to be set.
+ */
+export async function warnMissingDescription(ctx: SpaceCtx, isNew: boolean): Promise<void> {
+  const wanted = ((ctx.spec.settings?.seo ?? {}) as { description?: unknown }).description;
+  if (typeof wanted === 'string' && wanted.trim()) return;
+  let own = '';
+  let site = '';
+  if (!isNew) {
+    const seo = await ctx.api
+      .get<{ description?: string; siteDescription?: string }>(
+        `/public/orgs/${ctx.org}/spaces/${ctx.spaceId}/seo`,
+      )
+      .catch(() => null);
+    own = (seo?.description ?? '').trim();
+    site = (seo?.siteDescription ?? '').trim();
+  }
+  if (own) return;
+  ctx.line({
+    verb: 'warn',
+    what: `space ${ctx.spec.space}`,
+    detail: site
+      ? `has no description — pages without their own use the site tagline ("${site.slice(0, 60)}"); set settings.seo.description`
+      : 'has no description — its index pages publish no meta description; set settings.seo.description (or the site tagline)',
+  });
 }
 
 /** `theme`: `PATCH …/theme` deep-merges, so only the differing top-level keys are sent. */

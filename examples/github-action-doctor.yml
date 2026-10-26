@@ -1,0 +1,48 @@
+# `forumulate doctor` in CI — copy to .github/workflows/doctor.yml.
+#
+# Checks the LIVE site from the outside: canonicals on every address, the
+# sitemap, cache headers, root redirects, descriptions, llms.txt, favicons,
+# the consent banner's language and white-label leaks. Fails the job on any
+# FAIL (exit 1) and keeps the full JSON report as an artifact either way.
+#
+# A URL needs no token. `--site` reads the site's addresses from the API, so it
+# needs FORUMULATE_TOKEN — a read-only token is enough (scope `read`).
+name: Site doctor
+on:
+  schedule:
+    - cron: '17 6 * * *' # daily: catches what a deploy or a CDN rule changed
+  push:
+    branches: [main]
+  workflow_dispatch:
+
+jobs:
+  doctor:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/setup-node@v4
+        with: { node-version: 20 }
+
+      # Option A: one address, no token.
+      - name: Doctor (URL)
+        if: ${{ vars.DOCTOR_URL != '' }}
+        run: npx -y @forumulate/cli@latest doctor "$DOCTOR_URL" --json --out doctor-url.json
+        env:
+          DOCTOR_URL: ${{ vars.DOCTOR_URL }} # e.g. https://docs.example.com/docs
+
+      # Option B: every space of a site, at every address (custom domain AND
+      # platform copy). The token is only used to look the addresses up.
+      - name: Doctor (site)
+        if: ${{ vars.DOCTOR_SITE != '' && always() }}
+        run: npx -y @forumulate/cli@latest doctor --site "$DOCTOR_SITE" --org "$FORUMULATE_ORG" --json --out doctor-site.json
+        env:
+          DOCTOR_SITE: ${{ vars.DOCTOR_SITE }}
+          FORUMULATE_ORG: ${{ vars.FORUMULATE_ORG }}
+          FORUMULATE_TOKEN: ${{ secrets.FORUMULATE_TOKEN }}
+
+      - name: Keep the report
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: doctor-report
+          path: doctor-*.json
+          if-no-files-found: ignore

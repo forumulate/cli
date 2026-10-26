@@ -76,6 +76,82 @@ export const TYPE_GROUPS: GroupDef[] = [
         args: ['channelId'],
         destructive: true,
       },
+      // FMU-F07: a maintenance window as a pipeline has it. `--key` makes a
+      // retried job update its window instead of announcing a second one.
+      maintenance: {
+        op: 'StatusDepth_maintenance',
+        about:
+          'Schedule maintenance from CI (--from <iso> --to <iso> --components api,dashboard [--key $CI_RUN_ID] [--title …] [--markdown …])',
+      },
+      'templates list': {
+        op: 'StatusTemplates_list',
+        about: 'Saved incidents',
+        columns: ['id', 'name', 'title', 'severity'],
+      },
+      'templates use': {
+        op: 'StatusTemplates_use',
+        about: 'Open an incident from a saved one',
+        args: ['templateId'],
+      },
+      sla: {
+        op: 'StatusDepth_slaReport',
+        about: 'The uptime SLA report (--days 30 --target 99.9); --json for the PDF-ready sections',
+        columns: ['name', 'uptime', 'met', 'budgetMinutes', 'downtimeMinutes'],
+        pick: 'components',
+      },
+      'sla csv': {
+        op: 'StatusDepth_slaReportCsv',
+        about: 'The SLA report as CSV (--out sla.csv)',
+        download: 'sla.csv',
+      },
+      'upstreams list': {
+        op: 'StatusDepth_listUpstreams',
+        about: 'The services this page depends on, with their live reading',
+        pick: 'upstreams',
+        columns: ['id', 'label', 'display', 'mirrorIncidents'],
+      },
+      'upstreams set': {
+        op: 'StatusDepth_replaceUpstreams',
+        about:
+          'Replace them (--data @upstreams.json: [{label, source:{kind,url|org,space}, components, relation: upstream|product}])',
+      },
+      'mirror-grants list': {
+        op: 'StatusDepth_listMirrorGrants',
+        about: 'Which organizations may mirror this page while it is private, and how many pages do',
+        pick: 'grants',
+        columns: ['organizationId', 'slug', 'name', 'createdAt'],
+      },
+      'mirror-grants set': {
+        op: 'StatusDepth_replaceMirrorGrants',
+        about: 'Replace them (--data \'{"organizations":["acme-suite"]}\')',
+      },
+      'events list': {
+        op: 'StatusDepth_listEvents',
+        about: 'The private events feed (--open true for unacknowledged)',
+        pick: 'events',
+        columns: ['occurredAt', 'type', 'state', 'subject', 'title'],
+      },
+      'events post': {
+        op: 'StatusEventsIngest_ingest',
+        about: 'Post a private event (--id --type --title [--state failing]); the token must be an events key',
+      },
+      'event-keys list': {
+        op: 'StatusDepth_listKeys',
+        about: 'Events keys of this page',
+        pick: 'keys',
+        columns: ['id', 'name', 'hint', 'lastUsedAt', 'revokedAt'],
+      },
+      'event-keys create': {
+        op: 'StatusDepth_mintKey',
+        about: 'Mint an events key (status:write on this page)',
+        args: ['name'],
+      },
+      'event-keys revoke': {
+        op: 'StatusDepth_revokeKey',
+        about: 'Revoke an events key',
+        args: ['keyId'],
+        destructive: true,
+      },
       settings: { op: 'Status_getSettings', about: 'Auto-incidents, notifications, reminders' },
       configure: {
         op: 'Status_setSettings',

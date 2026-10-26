@@ -26,6 +26,12 @@ export const DEFAULT_API_VERSION = '2026-12-01';
 export interface HttpOptions {
   baseUrl: string;
   token?: string;
+  /**
+   * The global `--token` (FMU-DOC01): the bearer instead of `token`, except on
+   * a request whose operation owns a `token` parameter (`tokenIsParam`) — there
+   * the flag's value was that parameter, and `token` is the bearer.
+   */
+  flagToken?: string;
   userAgent: string;
   apiVersion?: string;
   fetch?: typeof fetch;
@@ -51,6 +57,8 @@ export interface HttpRequest {
    * the file a person saves will not open.
    */
   raw?: boolean;
+  /** `--token` was this operation's own `token` parameter, not the bearer (FMU-DOC01). */
+  tokenIsParam?: boolean;
 }
 
 export interface HttpResponse {
@@ -108,7 +116,8 @@ export class Http {
       'User-Agent': this.opts.userAgent,
       'Forumulate-Version': this.opts.apiVersion ?? DEFAULT_API_VERSION,
     };
-    if (this.opts.token) h.Authorization = `Bearer ${this.opts.token}`;
+    const bearer = (req.tokenIsParam ? undefined : this.opts.flagToken) ?? this.opts.token;
+    if (bearer) h.Authorization = `Bearer ${bearer}`;
     if (req.body !== undefined && !req.form) h['Content-Type'] = 'application/json';
     Object.assign(h, req.headers ?? {});
     const hasKey = Object.keys(h).some((k) => k.toLowerCase() === 'idempotency-key');

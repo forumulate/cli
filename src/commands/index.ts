@@ -9,6 +9,9 @@ import { complete, completionScript } from './completion';
 import type { CommandDeps } from './context';
 import { findGroup } from './groups';
 import { runGroup } from './resource';
+import { runCache } from '../cache-command';
+import { EXIT, exitCodeForError } from '../exit-codes';
+import { UsageError } from '../api/request';
 
 /**
  * The commands added for API parity — `api`, `config`, `completion`, and the
@@ -30,6 +33,15 @@ export interface RouteDeps {
   writeFile?: (path: string, data: Buffer | string) => void;
   readStdin?: () => Promise<string>;
   userAgent?: string;
+  /**
+   * The global `--token` (FMU-DOC01). It beats `FORUMULATE_TOKEN`, the stored
+   * token and an injected transport's token: a flag on the command line is
+   * the most specific thing the caller said. `argv` still carries it, because
+   * an operation that declares a `token` parameter (a registry's, a GitHub
+   * connection's, an ACME answer's) owns the flag — the rule every other CLI
+   * flag already follows (`api/request.ts`).
+   */
+  token?: string;
 }
 
 export function readAllStdin(): Promise<string> {
@@ -53,10 +65,18 @@ function commandDeps(argv: string[], deps: RouteDeps): CommandDeps {
     );
   const apiVersion = setting('api-version', flag(parsed, 'api-version'), env, config);
   const http = deps.http
-    ? new Http({ onRetry, ...deps.http.opts, ...(apiVersion ? { apiVersion } : {}) })
+    ? new Http({
+        onRetry,
+        ...deps.http.opts,
+        ...(apiVersion ? { apiVersion } : {}),
+        ...(deps.token ? { flagToken: deps.token } : {}),
+      })
     : new Http({
         baseUrl,
+        // The flag rides separately: on an operation with a `token` parameter
+        // of its own it is that parameter, and this is the bearer (http.ts).
         token: resolveToken(baseUrl, env),
+        flagToken: deps.token,
         userAgent: deps.userAgent ?? '@forumulate/cli',
         apiVersion,
         onRetry,
@@ -109,10 +129,11 @@ export async function route(
     });
   }
   const group = findGroup(cmd);
-  if (cmd !== 'api' && !group) return undefined;
+  if (cmd !== 'api' && cmd !== 'cache' && !group) return undefined;
   const ctx = commandDeps(tail, deps);
   try {
     if (cmd === 'api') return await runApi(tail, ctx);
+    if (cmd === 'cache') return await runCache(tail, ctx);
     const orgKnown = (p: ReturnType<typeof parseArgs>) =>
       Boolean(setting('org', flag(p, 'org'), ctx.env, ctx.config));
     const legacy: Parameters<typeof runGroup>[3] = (p, isVerb) => {
@@ -139,6 +160,8 @@ export async function route(
     return await runGroup(group!, tail, ctx, legacy);
   } catch (e) {
     for (const l of formatError(e)) deps.err(l);
-    return 1;
+    // The documented exit codes (FMU-D05): a usage error is 2, a refused token
+    // 3, a missing thing 4, a conflict 5 — a script can branch on which.
+    return e instanceof UsageError ? EXIT.USAGE : exitCodeForError(e);
   }
 }

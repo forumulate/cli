@@ -9,6 +9,13 @@ import { UsageError } from './request';
  */
 export interface SendOptions {
   json: boolean;
+  /**
+   * With `--paginate`: one JSON object per line, written as each page arrives
+   * (FMU-D05). A 1,226-row walk merged into one array is held whole in memory
+   * and printed at the end; a line per row streams, and `jq -c`, `wc -l` and a
+   * `while read` loop all consume it without parsing a 10 MB document.
+   */
+  jsonl?: boolean;
   paginate?: boolean;
   maxPages?: number;
   columns?: string[];
@@ -32,7 +39,16 @@ export async function sendAndPrint(
     return res.data;
   }
   if (request.method !== 'GET') throw new UsageError('--paginate only applies to GET operations');
-  const rows = await walk(http, request, opts.maxPages ?? 1000);
+  const rows = await walk(
+    http,
+    request,
+    opts.maxPages ?? 1000,
+    opts.jsonl ? (page) => page.forEach((r) => io.out(JSON.stringify(r))) : undefined,
+  );
+  if (opts.jsonl) {
+    if (!rows.list) io.out(JSON.stringify(rows.first ?? null));
+    return rows.rows;
+  }
   if (!rows.list) {
     // Not a list: nothing to walk, so the one answer is the answer.
     print(rows.first, opts, io);
@@ -56,6 +72,8 @@ export async function walk(
   http: Http,
   request: HttpRequest,
   maxPages = 1000,
+  /** Each page's rows as they arrive (`--jsonl` streams them). */
+  onPage?: (rows: unknown[]) => void,
 ): Promise<{ key: string; rows: unknown[]; list: boolean; first: unknown }> {
   const rows: unknown[] = [];
   let key = '';
@@ -70,7 +88,9 @@ export async function walk(
     const found = rowsOf(res.data);
     if (!found) return { key, rows, list: page > 0, first };
     key ||= found.key;
-    rows.push(...found.rows);
+    // Streamed rows are not also held: the point of `--jsonl` is a walk of any size.
+    if (onPage) onPage(found.rows);
+    else rows.push(...found.rows);
     const info = pageOf(res.data);
     if (!info?.hasMore || !info.nextCursor || info.nextCursor === cursor) break;
     cursor = info.nextCursor;

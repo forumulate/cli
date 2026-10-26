@@ -87,3 +87,28 @@ export function rewriteValue<T>(value: T, urlByRef: Map<string, string>): T {
     ) as T;
   return value;
 }
+
+/**
+ * Does the live text still point at every picture the file's body uses?
+ *
+ * The word comparison (`compare.ts`) ignores link and image targets on
+ * purpose — the importer rewrites them, so they are never the same string
+ * twice. That left one change invisible: an image replaced by a new one under
+ * the same name uploads under a new content hash, and the post kept pointing
+ * at the old picture because its words had not changed. So the targets are
+ * checked here instead, by the URL each reference resolves to: one that is
+ * not uploaded yet, or not in the live text, means the body must be sent.
+ */
+export function mediaChanged(
+  body: string,
+  refs: Map<string, string> | undefined,
+  urls: Map<string, string>,
+  liveText: string,
+): boolean {
+  for (const ref of refs?.keys() ?? []) {
+    if (!body.includes(ref)) continue; // a front-matter value: compared as a field
+    const url = urls.get(ref);
+    if (!url || !liveText.includes(url)) return true;
+  }
+  return false;
+}

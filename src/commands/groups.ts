@@ -2,6 +2,7 @@ import { API_GROUPS } from './groups-api';
 import { COMMUNITY_GROUPS } from './groups-community';
 import { CONTENT_GROUPS } from './groups-content';
 import { DOCS_GROUPS } from './groups-docs';
+import { JOB_GROUPS } from './groups-jobs';
 import { ORG_GROUPS } from './groups-org';
 import { SITE_GROUPS } from './groups-site';
 import { SPACE_GROUPS } from './groups-spaces';
@@ -62,6 +63,7 @@ export const GROUPS: GroupDef[] = [
   ...TYPE_GROUPS,
   ...CONTENT_GROUPS,
   ...SITE_GROUPS,
+  ...JOB_GROUPS,
   SEARCH,
 ];
 

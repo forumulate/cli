@@ -1,8 +1,9 @@
-import { readFileSync } from 'node:fs';
+import { readFileSync, statSync } from 'node:fs';
 import { basename } from 'node:path';
 import { createHash } from 'node:crypto';
-import type { ForumulateClient } from '@forumulate/sdk';
-import type { LiveCollection, LivePage, LivePost } from './types';
+import type { ApiClient } from './client';
+import type { Slot } from './slots';
+import type { LiveCollection, LivePage, LivePost, LiveTag } from './types';
 
 /**
  * Every call the publisher makes, through `@forumulate/sdk`.
@@ -22,7 +23,7 @@ import type { LiveCollection, LivePage, LivePost } from './types';
  * publishing.
  */
 export interface ApiOptions {
-  client: ForumulateClient;
+  client: ApiClient;
   /** Whether a token is present — decides authenticated vs public reads. */
   authed: boolean;
   readOnly: boolean;
@@ -161,12 +162,13 @@ export class PublishApi {
     collections: LiveCollection[];
     pages: LivePage[];
     fieldKeys: string[];
+    slots: Slot[];
     publicRows: Map<string, Record<string, unknown>>;
   }> {
     const publicRows = new Map<string, Record<string, unknown>>();
     if (!this.opts.authed) {
       const r = await this.get<{
-        shape?: { params?: { key: string }[] };
+        shape?: { params?: { key: string }[]; sections?: Slot[] };
         collections: (LiveCollection & {
           pages?: (LivePage & Record<string, unknown> & { children?: unknown[] })[];
         })[];
@@ -203,6 +205,7 @@ export class PublishApi {
         collections,
         pages,
         fieldKeys: (r.shape?.params ?? []).map((p) => p.key),
+        slots: r.shape?.sections ?? [],
         publicRows,
       };
     }
@@ -215,7 +218,7 @@ export class PublishApi {
         'pages',
         { limit: 1000 },
       ),
-      this.get<{ shape?: { params?: { key: string }[] } }>(
+      this.get<{ shape?: { params?: { key: string }[]; sections?: Slot[] } }>(
         `/orgs/${org}/spaces/${space}/shape`,
       ).catch(() => ({ shape: undefined })),
     ]);
@@ -233,20 +236,29 @@ export class PublishApi {
       collections,
       pages,
       fieldKeys: (shape.shape?.params ?? []).map((p) => p.key),
+      slots: shape.shape?.sections ?? [],
       publicRows,
     };
   }
 
-  /** Every page's markdown, in one paged walk when authenticated. */
-  async markdownById(org: string, space: string): Promise<Map<string, string>> {
-    const out = new Map<string, string>();
+  /**
+   * Every page's markdown, and its slots, in one paged walk when authenticated.
+   * The slots are what a page whose front matter fills them is compared by.
+   */
+  async bodiesById(
+    org: string,
+    space: string,
+  ): Promise<Map<string, { markdown: string; sections: Record<string, string> }>> {
+    const out = new Map<string, { markdown: string; sections: Record<string, string> }>();
     if (!this.opts.authed) return out;
-    const items = await this.all<{ id: string; markdown?: string }>(
-      `/orgs/${org}/spaces/${space}/items`,
-      'items',
-      { limit: 50, include: 'body' },
-    );
-    for (const i of items) if (typeof i.markdown === 'string') out.set(i.id, i.markdown);
+    const items = await this.all<{
+      id: string;
+      markdown?: string;
+      sections?: Record<string, string>;
+    }>(`/orgs/${org}/spaces/${space}/items`, 'items', { limit: 50, include: 'sections,body' });
+    for (const i of items)
+      if (typeof i.markdown === 'string')
+        out.set(i.id, { markdown: i.markdown, sections: i.sections ?? {} });
     return out;
   }
 
@@ -300,8 +312,10 @@ export class PublishApi {
   async shape(
     org: string,
     space: string,
+    /** A post's own kind (`drop`, `roundup`): its preset's fields over the space's. */
+    kind?: string,
   ): Promise<{
-    sections: { key: string; required?: boolean; role?: string; schemaProperty?: string }[];
+    sections: Slot[];
     params: { key: string }[];
   }> {
     if (!this.opts.authed) {
@@ -311,9 +325,18 @@ export class PublishApi {
       return { sections: r.shape?.sections ?? [], params: r.shape?.params ?? [] };
     }
     const r = await this.get<{ shape: { sections?: never[]; params?: never[] } }>(
-      `/orgs/${org}/spaces/${space}/shape`,
+      `/orgs/${org}/spaces/${space}/shape${kind ? `?preset=${encodeURIComponent(kind)}` : ''}`,
     );
     return { sections: r.shape?.sections ?? [], params: r.shape?.params ?? [] };
+  }
+
+  // ── Blog categories ───────────────────────────────────────────────────────
+
+  /** How each tag looks now (`GET …/blog/tag-info`); null without a token. */
+  async tagInfo(org: string, space: string): Promise<LiveTag[] | null> {
+    if (!this.opts.authed) return null;
+    const r = await this.get<{ tags?: LiveTag[] }>(`/orgs/${org}/spaces/${space}/blog/tag-info`);
+    return r.tags ?? [];
   }
 
   // ── Assets ─────────────────────────────────────────────────────────────────
@@ -339,9 +362,9 @@ export class PublishApi {
     abs: string,
     existing: Map<string, string>,
   ): Promise<string> {
-    const name = assetName(abs);
-    const known = existing.get(name);
+    const known = lookupAsset(existing, abs);
     if (known) return known;
+    const name = assetName(abs);
     if (this.opts.readOnly) throw new Error(`dry run tried to upload ${abs}`);
     if (!this.opts.upload) throw new Error('asset upload is not available in this environment');
     const form = new FormData();
@@ -356,10 +379,45 @@ export class PublishApi {
   }
 }
 
+/**
+ * Hashes already computed this process, by path, size and modification time —
+ * a picture ten posts point at is read once, and one edited between two runs
+ * in the same process (the git sync job) is read again.
+ */
+const hashes = new Map<string, string>();
+
+/** The first 12 hex of the file's sha256: what an upload is deduplicated by. */
+export function contentHash(abs: string): string {
+  const st = statSync(abs);
+  const key = `${abs}\u0000${st.size}\u0000${st.mtimeMs}`;
+  let h = hashes.get(key);
+  if (!h) {
+    h = createHash('sha256').update(readFileSync(abs)).digest('hex').slice(0, 12);
+    hashes.set(key, h);
+  }
+  return h;
+}
+
 /** `<12 hex of sha256>-<file name>` — the stored name an asset is found by. */
 export function assetName(abs: string): string {
-  const hash = createHash('sha256').update(readFileSync(abs)).digest('hex').slice(0, 12);
-  return `${hash}-${basename(abs).replace(/[^\w.-]+/g, '-')}`;
+  return `${contentHash(abs)}-${basename(abs).replace(/[^\w.-]+/g, '-')}`;
+}
+
+/**
+ * The URL of an asset with the same BYTES, whatever it was called.
+ *
+ * The stored name leads with the content hash, so the same picture saved as
+ * `cover.png` in one post folder and `hero.png` in another — or renamed, or
+ * moved — is found and reused rather than uploaded again. A changed picture
+ * has a new hash, so it is never mistaken for the old one.
+ */
+export function lookupAsset(existing: Map<string, string>, abs: string): string | undefined {
+  const name = assetName(abs);
+  const exact = existing.get(name);
+  if (exact) return exact;
+  const prefix = `${contentHash(abs)}-`;
+  for (const [stored, url] of existing) if (stored.startsWith(prefix)) return url;
+  return undefined;
 }
 
 /** A short, stable key for `Idempotency-Key`: the same write retried is one write. */

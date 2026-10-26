@@ -113,6 +113,7 @@ export const PAGE_META_KEYS = [
   'ogTitle',
   'ogDescription',
   'twitterCard',
+  'socialBadge',
   'jsonLd',
 ] as const;
 const META_BY_LOWER = new Map(PAGE_META_KEYS.map((k) => [k.toLowerCase(), k]));

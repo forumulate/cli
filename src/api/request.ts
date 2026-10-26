@@ -44,7 +44,24 @@ export const API_FLAGS = new Set([
   'help',
   'verbose',
   'org',
+  // The output contract (FMU-D05): never API parameters.
+  'out',
+  'jsonl',
+  /*
+   * The global PAT override (FMU-DOC01). Here so that, on an operation with no
+   * `token` of its own, it is never sent on as a query parameter (the secret
+   * in a URL and in every access log in front of the API). An operation that
+   * declares one, in its parameters or its body, still owns it: see `OWNED_FIRST`.
+   */
+  'token',
 ]);
+
+/**
+ * CLI flags an operation's BODY property of the same name also beats. Only
+ * `token` for now: a registry's, a GitHub connection's and an ACME answer's
+ * token are body fields, and `--token` named them before it was global.
+ */
+const OWNED_FIRST = new Set(['token']);
 
 export const norm = (s: string): string => s.toLowerCase().replace(/[-_]/g, '');
 
@@ -129,13 +146,16 @@ export async function planRequest(
   const form = new FormData();
   let formSet = false;
 
+  let tokenIsParam = false;
   for (const [name, vals] of parsed.flags) {
     const param = byNorm.get(norm(name));
     if (param) {
       values[param.n] = [...(values[param.n] && !preset[param.n] ? values[param.n]! : []), ...vals];
+      if (name === 'token') tokenIsParam = true;
       continue;
     }
-    if (API_FLAGS.has(name)) continue;
+    if (API_FLAGS.has(name) && !(OWNED_FIRST.has(name) && bodyByNorm.has(norm(name)))) continue;
+    if (name === 'token') tokenIsParam = true;
     const prop = bodyByNorm.get(norm(name));
     if (prop && !op.mp) {
       const v = vals.at(-1)!;
@@ -227,6 +247,8 @@ export async function planRequest(
     }
 
   const request: HttpRequest = { method: op.m, path, query, headers, idempotent: Boolean(op.ik) };
+  // The value went to the operation, so the bearer is the ordinary one.
+  if (tokenIsParam) request.tokenIsParam = true;
   if (formSet) request.form = form;
   else if (bodySet) {
     request.body =

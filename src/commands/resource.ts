@@ -1,12 +1,15 @@
 import { splitFront } from '../publish/frontmatter';
+import { slugify } from '../publish/names';
+import { EXIT } from '../exit-codes';
 import { flag, has, parseArgs, type Parsed } from '../api/args';
 import type { HttpRequest } from '../api/http';
 import { rowsOf } from '../api/output';
-import { planRequest, UsageError } from '../api/request';
+import { norm, planRequest, UsageError } from '../api/request';
 import { print, printRequest, sendAndPrint } from '../api/send';
 import { bodyProperties, findById, pathParams, type Operation } from '../api/spec';
 import { setting } from './config';
 import { confirm, isUuid, resolveChild, type CommandDeps } from './context';
+import { jobOf, reportWait, timeoutOf, waitForJob } from './job-wait';
 
 /**
  * The resource commands — `spaces list`, `webhooks create`, `tokens rotate` —
@@ -42,6 +45,13 @@ export interface VerbDef {
   /** With `--file`, send the body through this operation instead (items: PUT …/content). */
   contentOp?: string;
   destructive?: boolean;
+  /**
+   * The query flag that makes this write a dry run (`dryRun`): the CLI sends
+   * it first, prints the diff the API answers, and asks before the real write
+   * unless `--yes` (FMU-D09). For a write that replaces a whole document,
+   * where one forgotten key is a removal.
+   */
+  previewFirst?: string;
   columns?: string[];
   /** Query defaults the operation needs to be useful here (`include=sections,body`). */
   query?: Record<string, string>;
@@ -68,6 +78,18 @@ export interface VerbDef {
    * command works now; the spec gap is the API's to close.
    */
   extraQuery?: string[];
+  /**
+   * Body fields of which at least one must be given (`openapi relabel` with no
+   * label is a plain resync — a whole regeneration nobody asked for).
+   */
+  requireOne?: string[];
+  /**
+   * The command starts a background job (FMU-D03): `--wait [--timeout <s>]`
+   * blocks until it is final and exits 0 completed / 1 failed / 124 timeout.
+   */
+  job?: boolean;
+  /** The command IS a wait (`jobs wait <id>`): as if `--wait` were always given. */
+  waits?: boolean;
 }
 
 export interface GroupDef {
@@ -99,6 +121,9 @@ const OWN = new Set([
   'include-headers',
   'publish',
   'out',
+  'jsonl',
+  'wait',
+  'timeout',
 ]);
 
 export function groupHelp(g: GroupDef): string {
@@ -130,6 +155,7 @@ function scopeFlags(op: Operation, v: VerbDef): string {
   if (params.includes('libraryId') && !own.has('libraryId')) parts.push('--library <library>');
   if (v.markdown) parts.push('[--file <file.md>]');
   if (v.publishOp) parts.push('[--publish]');
+  if (v.job) parts.push('[--wait [--timeout 600]]');
   if (v.download) parts.push(`[--out ${v.download}]`);
   if (v.destructive) parts.push('[--yes]');
   return parts.length ? ` ${parts.join(' ')}` : '';
@@ -174,7 +200,7 @@ export async function runGroup(
           : `Usage: forumulate ${g.name} <command>`,
       );
       deps.out(groupHelp(g));
-      return 1;
+      return EXIT.USAGE;
     }
   }
   try {
@@ -182,7 +208,7 @@ export async function runGroup(
   } catch (e) {
     if (e instanceof UsageError) {
       deps.err(`Usage: ${e.message}`);
-      return 1;
+      return EXIT.USAGE;
     }
     throw e;
   }
@@ -230,6 +256,19 @@ async function runVerb(
     throw new UsageError(`unexpected argument "${queue.join(' ')}". ${usageLine(g, verb, v)}`);
   const missing = (v.args ?? []).filter((a) => params.includes(a) && !preset[a]);
   if (missing.length) throw new UsageError(usageLine(g, verb, v));
+  if (v.requireOne?.length) {
+    const want = new Set(v.requireOne.map(norm));
+    const named = [...parsed.flags.keys()].some((k) => want.has(norm(k)));
+    const asField = [...(parsed.flags.get('field') ?? []), ...(parsed.flags.get('f') ?? [])].some(
+      (f) => want.has(norm(f.split(/:?=/)[0] ?? '')),
+    );
+    if (!named && !asField && !parsed.flags.has('data'))
+      throw new UsageError(
+        `${usageLine(g, verb, v)} needs at least one of ${v.requireOne
+          .map((n) => `--${n.replace(/[A-Z]/g, (c) => `-${c.toLowerCase()}`)}`)
+          .join(', ')}`,
+      );
+  }
 
   if (params.includes('orgId') && !preset.orgId) {
     const org = setting('org', flag(parsed, 'org'), deps.env, deps.config);
@@ -305,15 +344,48 @@ async function runVerb(
         .at(-1)?.[1] ?? preset.orgId;
     if (!(await confirm(deps, has(parsed, 'yes'), `${verb} ${g.noun} ${target}?`))) return 1;
   }
+  if (v.previewFirst && !has(parsed, 'yes')) {
+    const preview = await deps.http.send({
+      ...main,
+      query: { ...main.query, [v.previewFirst]: 'true' },
+    });
+    const diff = (preview.data as { diff?: unknown[] } | undefined)?.diff ?? [];
+    deps.err(`This ${verb} would change ${diff.length} key(s):`);
+    for (const d of diff.slice(0, 200)) deps.err(`  ${typeof d === 'string' ? d : JSON.stringify(d)}`);
+    if (diff.length === 0) {
+      deps.err('Nothing to change.');
+      return EXIT.OK;
+    }
+    if (!(await confirm(deps, false, `Apply this ${verb} to ${g.noun}?`))) return EXIT.USAGE;
+  }
   const json = has(parsed, 'json');
   const opts = {
     json,
     paginate: has(parsed, 'paginate'),
+    jsonl: has(parsed, 'jsonl'),
     maxPages: Number(flag(parsed, 'max-pages') ?? 1000),
     columns: flag(parsed, 'columns')?.split(',') ?? v.columns,
     includeHeaders: has(parsed, 'include-headers'),
   };
   if (v.download) return download(deps, main, v.download, flag(parsed, 'out'));
+  const wantWait = v.waits || has(parsed, 'wait');
+  if (wantWait && !v.job && !v.waits)
+    throw new UsageError(`${g.name} ${verb} starts no background job, so there is nothing to --wait for`);
+  if (wantWait) {
+    // Quiet until the end: one answer on stdout (the final job), progress on stderr.
+    let answer: unknown;
+    for (const request of requests) answer = (await deps.http.send(request)).data;
+    const job = jobOf(answer);
+    // No job in the answer: the work finished inline, which is "completed".
+    if (!job) {
+      print(answer, opts, deps);
+      return EXIT.OK;
+    }
+    const outcome = await waitForJob(deps, preset.orgId!, job, {
+      timeoutSeconds: timeoutOf(flag(parsed, 'timeout')),
+    });
+    return reportWait(deps, outcome, json);
+  }
   let result: unknown;
   for (const request of requests) {
     if (v.pick && !opts.paginate) {
@@ -398,9 +470,18 @@ async function lookup(
     string,
     unknown
   >[];
+  /*
+   * A name, or the slug a person would type for it: `openapi relabel
+   * referally-api` names the spec registered as "Referally API" (FMU-D10).
+   * Things without a slug of their own are still called by one in a terminal.
+   */
+  // The CLI's mirror of the shared address rule (publish/names.ts), uncapped.
+  const slugish = (v: string) => slugify(v, '', 200);
   const hits = rows.filter(
     (r) =>
-      r.id === ref || how.match.some((m) => String(r[m] ?? '').toLowerCase() === ref.toLowerCase()),
+      r.id === ref ||
+      how.match.some((m) => String(r[m] ?? '').toLowerCase() === ref.toLowerCase()) ||
+      how.match.some((m) => r[m] != null && slugish(String(r[m])) === slugish(ref)),
   );
   if (hits.length === 1) return String(hits[0]!.id);
   if (hits.length > 1) throw new UsageError(`"${ref}" matches ${hits.length}; pass the id`);

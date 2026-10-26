@@ -16,11 +16,15 @@ export const TOP_LEVEL = [
   'config',
   'api',
   'publish',
+  'sync',
+  'plan',
+  'apply',
   'snapshot',
   'content',
   'import',
   'conformance',
   'doctor',
+  'validate',
   'completion',
   'help',
 ];
@@ -103,6 +107,21 @@ function flagsFor(cmd: string, before: string[]): string[] {
     ];
     return [...(op?.q ?? []).map((p) => `--${p.n}`), ...own];
   }
+  // The folder commands' own flags (run.ts); `sync` plans unless told --apply.
+  if (cmd === 'publish' || cmd === 'sync')
+    return [
+      ...(cmd === 'sync' ? ['--apply'] : ['--dry-run']),
+      '--prune',
+      '--diff',
+      '--only',
+      '--force',
+      '--no-verify',
+      '--pace',
+      '--manifest',
+      '--org',
+      '--space',
+      '--json',
+    ];
   const g = findGroup(cmd);
   if (!g) return COMMON_FLAGS;
   const verb = g.verbs[`${positionals[0]} ${positionals[1]}`] ?? g.verbs[positionals[0] ?? ''];

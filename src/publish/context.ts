@@ -1,6 +1,7 @@
 import { posix } from 'node:path';
 import type { PublishApi } from './api';
-import type { ScanResult } from './scan';
+import type { Slot } from './slots';
+import type { ScanResult } from './types';
 import type { PlanLine, SpaceSpec } from './types';
 
 /**
@@ -72,6 +73,16 @@ export interface SpaceCtx {
   dryRun: boolean;
   line: (l: PlanLine) => void;
   errors: string[];
+  /** The named slots a page-backed type declares (empty for posts and plain docs). */
+  slots?: Slot[];
+  /**
+   * What the run purges (FMU-D04): undefined keeps the server's background
+   * purge and reports nothing (the git sync job); `page`/`none` ride on each
+   * import; `space` is one purge when the space is done.
+   */
+  purge?: 'page' | 'space' | 'none';
+  /** Every `purged` answer the server gave this run, for the summary. */
+  purged?: Record<string, unknown>[];
 }
 
 export const spacePath = (ctx: SpaceCtx, rest: string) =>

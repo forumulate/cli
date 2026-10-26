@@ -27,8 +27,26 @@ export const API_GROUPS: GroupDef[] = [
       },
       resync: {
         op: 'OpenApi_resyncSpec',
-        about: 'Re-read the spec and update its pages (--background true)',
+        about: 'Re-read the spec and update its pages (--background true [--wait])',
         args: ['id'],
+        job: true,
+      },
+      /*
+       * The reference's front door, renamed (FMU-D10). A product renamed
+       * after its first import kept `ref-<old-name>` for good, because the
+       * landing's address came from the title and nothing could set it. This
+       * is a resync that says what the landing is called and where it lives:
+       * the same page moves, the old address answers 308, and the labels are
+       * recorded on the spec so the next deploy's resync keeps them.
+       */
+      relabel: {
+        op: 'OpenApi_resyncSpec',
+        about:
+          'Rename the reference’s landing page: --landing-slug ref-acme-api ' +
+          '--landing-title "Acme API" --landing-description "…" (the page moves, the old address 308s)',
+        args: ['id'],
+        lookup: { id: { listOp: 'OpenApi_listSpecs', match: ['name'] } },
+        requireOne: ['landingSlug', 'landingTitle', 'landingDescription'],
       },
       'resync status': {
         op: 'OpenApi_resyncStatus',
@@ -64,7 +82,8 @@ export const API_GROUPS: GroupDef[] = [
       },
       generate: {
         op: 'OpenApi_generate',
-        about: 'Write guide pages from a spec (--url, --enhance; your AI provider)',
+        about: 'Write guide pages from a spec (--url, --enhance; your AI provider) [--wait]',
+        job: true,
       },
       'generate status': {
         op: 'OpenApi_generateStatus',

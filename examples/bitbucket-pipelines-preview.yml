@@ -1,0 +1,22 @@
+# Docs preview per pull request (FMU-F01) — Bitbucket Pipelines.
+# Merge into bitbucket-pipelines.yml.
+#
+# Repository variables (secured):
+#   FORUMULATE_TOKEN  a token with docs.write on the space
+#   BITBUCKET_TOKEN   a repository access token with `pullrequest:write`
+pipelines:
+  pull-requests:
+    '**':
+      - step:
+          name: Docs preview
+          image: node:20
+          script:
+            - npm i -g @forumulate/cli
+            - forumulate check links docs
+            - forumulate publish docs --org acme --space docs --preview pr-$BITBUCKET_PR_ID --comment --json --out preview.json
+          artifacts:
+            - preview.json
+# Any other host (Gitea and Forgejo Actions use the GitHub recipe; Azure
+# Pipelines, Jenkins, Buildkite …): run the same publish with --json and post
+# `previews[0].comment` with the host's own tool. The comment begins with
+# `<!-- forumulate-preview:<name> -->`, so a script can find and edit it.

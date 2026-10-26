@@ -181,9 +181,16 @@ export const DOCS_GROUPS: GroupDef[] = [
         destructive: true,
       },
       restore: { op: 'Page_restore', about: 'Bring a page back from the trash', args: ['pageId'] },
+      destroy: {
+        op: 'Page_destroy',
+        about:
+          'Delete a TRASHED page for good (--confirm <its slug>). Not a cache purge: see `forumulate cache purge`',
+        args: ['pageId'],
+        destructive: true,
+      },
       purge: {
-        op: 'Page_purge',
-        about: 'Delete a trashed page for good',
+        op: 'Page_destroy',
+        about: 'Old name of `destroy` (deleting for good, not a cache purge)',
         args: ['pageId'],
         destructive: true,
       },

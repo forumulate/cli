@@ -1,24 +1,28 @@
-import { statSync } from 'node:fs';
 import type { ForumulateClient } from '@forumulate/sdk';
 import { runConformance } from './conformance';
-import { runDoctor } from './doctor';
-import { forgetToken, storeToken } from './credentials';
-import { runPublish } from './publish/command';
-import { apiBaseFromEnv, siteFromEnv } from './api-base';
+import { runDoctorCommand } from './doctor/command';
+import { runValidateCommand } from './validate';
+import { forgetToken, storeToken, takeTokenFlag } from './credentials';
+import { runFolder, runPublishCli } from './publish-command';
+import { runPlanCommand } from './plan/command';
+import { runWhoami } from './whoami';
+import { COMMAND_HELP } from './help-commands';
+import { EXIT, exitCodeForError } from './exit-codes';
+import { runDev } from './dev/command';
+import { apiBaseFromEnv } from './api-base';
 import { CONTENT_VALUE_FLAGS, runContent, type ContentDeps } from './content/command';
+import { orgRows } from './content/library';
 import { IMPORT_VALUE_FLAGS, runImportCommand } from './import/command';
 import { runTranslations, TRANSLATIONS_VALUE_FLAGS } from './translations/command';
+import { CHECK_VALUE_FLAGS, runCheck } from './check/command';
 import type { SyncFiles } from './translations/sync';
 import { HELP } from './help';
 import { route } from './commands';
 import { envWithConfig } from './commands/config';
 import type { Http } from './api/http';
 
-/**
- * Kept in step with package.json by `cli-version.test.ts` — they had drifted to
- * 0.1.0 and 0.2.1, so `--version` reported a release that was never published.
- */
-export const VERSION = '0.8.0';
+import { VERSION } from './version';
+export { VERSION };
 
 export interface RunDeps {
   /** The API client. Injected so the CLI is testable without a live server. */
@@ -63,12 +67,17 @@ export interface RunDeps {
 
 /** Flags that take a value, so `--only intro` does not read `intro` as an argument. */
 const VALUE_FLAGS = new Set([
+  '--port',
+  '--site',
   '--token',
   '--org',
   '--space',
   '--manifest',
   '--only',
   '--pace',
+  '--purge',
+  '--batch',
+  ...CHECK_VALUE_FLAGS,
   ...CONTENT_VALUE_FLAGS,
   ...IMPORT_VALUE_FLAGS,
   ...TRANSLATIONS_VALUE_FLAGS,
@@ -78,10 +87,28 @@ const VALUE_FLAGS = new Set([
  * Parse and execute a CLI invocation. Pure w.r.t. I/O (uses the injected deps),
  * so it can be unit-tested with a fake client. Returns a process exit code.
  */
-export async function run(argv: string[], deps: RunDeps): Promise<number> {
+/**
+ * `publish|sync --preview <name> [--preview-ttl <days>]` (FMU-F01). Value flags
+ * for those two commands only: `content types --preview` is a switch, and a
+ * global entry would swallow the argument after it there.
+ */
+const PUBLISH_VALUE_FLAGS = ['--preview', '--preview-ttl'];
+
+export async function run(argvIn: string[], deps: RunDeps): Promise<number> {
+  /*
+   * `--token` is global (FMU-DOC01): taken out here, before the commands below
+   * parse their arguments, and handed to every transport this run builds. It
+   * used to reach only the SDK client, so the commands that build their own
+   * transport (`api`, the resource groups, `validate`, `doctor --site`) sent
+   * FORUMULATE_TOKEN or the stored token instead of the one on the line.
+   */
+  const { argv, token: flagToken } = takeTokenFlag(argvIn);
+  const word = argv.find((a) => !a.startsWith('-'));
+  const valueFlags =
+    word === 'publish' || word === 'sync' ? new Set([...VALUE_FLAGS, ...PUBLISH_VALUE_FLAGS]) : VALUE_FLAGS;
   const args = argv.filter(
     (a, i) =>
-      !a.startsWith('--') && !(VALUE_FLAGS.has(argv[i - 1] ?? '') && !argv[i - 1]!.includes('=')),
+      !a.startsWith('--') && !(valueFlags.has(argv[i - 1] ?? '') && !argv[i - 1]!.includes('=')),
   );
   const flags = new Set(argv.filter((a) => a.startsWith('--')).map((a) => a.split('=')[0]!));
   /** `--token=abc` or `--token abc`, for the flags that carry a value. */
@@ -100,7 +127,9 @@ export async function run(argv: string[], deps: RunDeps): Promise<number> {
    * groups keep the older positional forms below by handing them back.
    */
   if (cmd && !(flags.has('--version') && cmd !== 'api')) {
-    const routed = await route(cmd, argv, {
+    // The arguments as given: an operation with a `token` parameter of its own
+    // owns `--token` there (commands/index.ts), and the bearer is the usual one.
+    const routed = await route(cmd, argvIn, {
       out: deps.out,
       err: deps.err,
       env: deps.env,
@@ -111,6 +140,7 @@ export async function run(argv: string[], deps: RunDeps): Promise<number> {
       writeFile: deps.writeFile,
       readStdin: deps.readStdin,
       userAgent: deps.userAgent ?? `@forumulate/cli/${VERSION}`,
+      token: flagToken,
     });
     if (routed !== undefined) return routed;
   }
@@ -119,23 +149,85 @@ export async function run(argv: string[], deps: RunDeps): Promise<number> {
     deps.out(VERSION);
     return 0;
   }
+  // A command's own help, never the global page (FMU-B14).
+  if (cmd && flags.has('--help') && COMMAND_HELP[cmd]) {
+    deps.out(COMMAND_HELP[cmd]!);
+    return EXIT.OK;
+  }
+  if (cmd === 'help' && rest[0] && COMMAND_HELP[rest[0]]) {
+    deps.out(COMMAND_HELP[rest[0]]!);
+    return EXIT.OK;
+  }
   if (!cmd || cmd === 'help' || flags.has('--help')) {
     deps.out(HELP);
-    return cmd && cmd !== 'help' ? 1 : 0;
+    return cmd && cmd !== 'help' && !flags.has('--help') ? EXIT.USAGE : EXIT.OK;
   }
 
   const dump = (v: unknown) => deps.out(JSON.stringify(v, null, 2));
 
+  /** The flags `publish` and `sync` share (see publish-command.ts). */
+  const folderFlags = (o: { dryRun: boolean }) => {
+    const only = argv
+      .flatMap((a, i) =>
+        a.startsWith('--only=') ? [a.slice(7)] : a === '--only' ? [argv[i + 1] ?? ''] : [],
+      )
+      .flatMap((v) => v.split(','))
+      .filter(Boolean);
+    const pace = Number(flagValue('--pace') ?? 250);
+    return {
+      org: flagValue('--org'),
+      space: flagValue('--space'),
+      manifest: flagValue('--manifest'),
+      dryRun: o.dryRun,
+      prune: flags.has('--prune'),
+      force: flags.has('--force'),
+      verify: !flags.has('--no-verify'),
+      only: only.length ? only : undefined,
+      paceMs: Number.isFinite(pace) && pace >= 0 ? pace : 250,
+      json,
+      diff: flags.has('--diff'),
+      purge: flagValue('--purge'),
+      report: !flags.has('--no-report'),
+      preview: flagValue('--preview'),
+      previewTtl: flagValue('--preview-ttl'),
+      comment: flags.has('--comment'),
+    };
+  };
+  const whoamiDeps = () => ({
+    out: deps.out,
+    err: deps.err,
+    env: deps.env ?? process.env,
+    baseUrl: deps.baseUrl,
+    flagToken,
+    me: () =>
+      deps.client.auth.me() as unknown as Promise<{
+        user: { id: string; name: string; email: string };
+        token?: Record<string, unknown>;
+      }>,
+  });
+  const publishDeps = {
+    client: deps.client,
+    authed: deps.authed ?? true,
+    out: deps.out,
+    err: deps.err,
+    upload: deps.upload,
+    env: deps.env,
+    sleep: deps.sleep,
+  };
+
   try {
     switch (cmd) {
-      case 'whoami': {
-        const { user } = await deps.client.auth.me();
-        if (json) dump(user);
-        else deps.out(`${user.name} <${user.email}> (${user.id})`);
-        return 0;
+      case 'whoami':
+        return runWhoami(json, whoamiDeps());
+      case 'auth': {
+        if (rest[0] !== 'status') {
+          deps.err('Usage: forumulate auth status [--json]');
+          return EXIT.USAGE;
+        }
+        return runWhoami(json, whoamiDeps());
       }
       case 'orgs': {
-        const { orgs } = await deps.client.orgs.list();
+        const orgs = orgRows(await deps.client.orgs.list());
         if (json) dump(orgs);
         else for (const o of orgs) deps.out(`${o.id}  ${o.slug}  ${o.name}`);
         return 0;
@@ -194,62 +286,63 @@ export async function run(argv: string[], deps: RunDeps): Promise<number> {
         else for (const h of hits) deps.out(`[${h.sourceType}] ${h.title}  ${h.url}`);
         return 0;
       }
-      case 'publish': {
+      case 'dev': {
+        // A live local preview of a docs folder, rendered by the API (DOCS #244).
+        const port = Number(flagValue('--port') ?? 4321);
+        return runDev(
+          {
+            folder: rest[0] ?? '.',
+            org: flagValue('--org'),
+            space: flagValue('--space'),
+            port: Number.isInteger(port) && port > 0 && port < 65536 ? port : 4321,
+            site: flagValue('--site'),
+          },
+          { client: deps.client, out: deps.out, err: deps.err },
+        );
+      }
+      case 'publish':
+        // One documented form; the older two print a notice (FMU-DOC07).
+        return runPublishCli(rest, folderFlags({ dryRun: flags.has('--dry-run') }), publishDeps);
+      case 'sync': {
         /*
-         * One verb, two objects. `publish <pageId>` published exactly one page
-         * by id, which is the thing a person doing docs-as-code never has:
-         * they have a directory (a customer DX report). A path that exists on
-         * disk is a folder publish; anything else is the id form, unchanged.
+         * `publish`, the other way round: a plan by default, `--apply` to
+         * write it. Content-as-code runs from a pull request as often as from
+         * main, and "I typed the command and it published" is the one mistake
+         * a docs-as-code pipeline cannot take back — so the safe form is the
+         * one you get by not knowing any flags.
          */
-        const isDir = (p: string | undefined) => {
-          try {
-            return Boolean(p) && statSync(p!).isDirectory();
-          } catch {
-            return false;
-          }
-        };
-        const folder =
-          rest.length === 1 ? rest[0] : rest.length === 3 && isDir(rest[2]) ? rest[2] : undefined;
-        if (folder) {
-          const legacy = rest.length === 3;
-          const only = argv
-            .flatMap((a, i) =>
-              a.startsWith('--only=') ? [a.slice(7)] : a === '--only' ? [argv[i + 1] ?? ''] : [],
-            )
-            .flatMap((v) => v.split(','))
-            .filter(Boolean);
-          const pace = Number(flagValue('--pace') ?? 250);
-          return runPublish(
-            {
-              folder,
-              org: legacy ? rest[0] : flagValue('--org'),
-              space: legacy ? rest[1] : flagValue('--space'),
-              manifest: flagValue('--manifest'),
-              dryRun: flags.has('--dry-run'),
-              prune: flags.has('--prune'),
-              force: flags.has('--force'),
-              verify: !flags.has('--no-verify'),
-              only: only.length ? only : undefined,
-              paceMs: Number.isFinite(pace) && pace >= 0 ? pace : 250,
-              json,
-            },
-            {
-              client: deps.client,
-              authed: deps.authed ?? true,
-              out: deps.out,
-              err: deps.err,
-              upload: deps.upload,
-              env: deps.env,
-              sleep: deps.sleep,
-            },
-          );
+        const folder = rest[0];
+        if (!folder || rest.length > 1)
+          return usage(deps, 'sync <folder> [--apply] [--prune] [--diff] [--org …] [--space …]');
+        if (flags.has('--dry-run') && flags.has('--apply')) {
+          deps.err('--dry-run and --apply contradict each other; sync plans unless told --apply.');
+          return EXIT.USAGE;
         }
-        const [orgId, spaceId, target] = rest;
-        if (!orgId || !spaceId || !target)
-          return usage(deps, 'publish <folder> | publish <orgId> <spaceId> <pageId>');
-        await deps.client.spaces.publishPage(orgId, spaceId, target);
-        deps.out(`Published ${target}.`);
-        return 0;
+        return runFolder(
+          folder,
+          { ...folderFlags({ dryRun: !flags.has('--apply') }), command: 'sync' },
+          publishDeps,
+        );
+      }
+      case 'plan':
+      case 'apply': {
+        // The whole-site document (DX-D); see plan/command.ts.
+        if (rest.length > 1) return usage(deps, `${cmd} [forumulate.yaml] [--org …]`);
+        const batch = Number(flagValue('--batch') ?? 20);
+        return runPlanCommand(
+          {
+            command: cmd === 'apply' ? 'apply' : 'plan',
+            file: rest[0] ?? flagValue('--manifest'),
+            org: flagValue('--org'),
+            prune: flags.has('--prune'),
+            json,
+            diff: flags.has('--diff'),
+            check: flags.has('--check'),
+            verbose: flags.has('--verbose'),
+            batch: Number.isInteger(batch) && batch > 0 ? batch : 20,
+          },
+          { client: deps.client, out: deps.out, err: deps.err, env: deps.env, upload: deps.upload },
+        );
       }
       case 'snapshot': {
         const [orgId, spaceId, ...label] = rest;
@@ -269,11 +362,11 @@ export async function run(argv: string[], deps: RunDeps): Promise<number> {
         const [collection] = rest;
         if (!collection) {
           deps.err('Usage: forumulate conformance <collectionUrl>');
-          return 1;
+          return EXIT.USAGE;
         }
         const report = await runConformance({
           collection,
-          token: process.env.FORUMULATE_TOKEN,
+          token: flagToken ?? process.env.FORUMULATE_TOKEN,
           versionHeader: { name: 'forumulate-version', value: '2026-09-01' },
         });
         if (json) {
@@ -302,31 +395,26 @@ export async function run(argv: string[], deps: RunDeps): Promise<number> {
        * just as well — a doctor that only passes on its author's deployment is
        * a checklist with extra steps.
        */
-      case 'doctor': {
-        const [url] = rest;
-        if (!url) return usage(deps, 'doctor <readerUrl>');
-        // Blank is the same as unset — see the note in `runDoctor`. Not
-        // `apiBaseFromEnv()`: doctor defaults to the SITE's own origin, which
-        // is the right probe for a reader URL on a customer's domain.
-        const report = await runDoctor({
-          url,
-          apiBase: siteFromEnv(),
+      // A folder's configuration against the published schemas (FMU-D11).
+      case 'validate':
+        return runValidateCommand(argv.slice(argv.indexOf('validate') + 1), {
+          out: deps.out,
+          err: deps.err,
+          env: deps.env,
+          http: deps.http,
+          userAgent: deps.userAgent,
+          flagToken,
         });
-        if (json) {
-          dump(report);
-        } else {
-          deps.out(`Checking ${report.url}`);
-          for (const check of report.checks) {
-            const mark = check.state === 'pass' ? 'PASS' : check.state === 'fail' ? 'FAIL' : 'SKIP';
-            deps.out(`  ${mark}  ${check.id}  ${check.title}`);
-            deps.out(`        ${check.detail}`);
-            if (check.state === 'fail' && check.matters)
-              deps.out(`        why it matters: ${check.matters}`);
-          }
-          deps.out(`${report.passed} passed, ${report.failed} failed, ${report.warnings} skipped`);
-        }
-        return report.failed > 0 ? 1 : 0;
-      }
+      case 'doctor':
+        // Site-wide checks, --site, --json, non-zero exit on FAIL (FMU-D14).
+        return runDoctorCommand(argv.slice(argv.indexOf('doctor') + 1), {
+          out: deps.out,
+          err: deps.err,
+          env: deps.env,
+          http: deps.http,
+          userAgent: deps.userAgent,
+          flagToken,
+        });
       /*
        * A token, stored for this API.
        *
@@ -339,7 +427,7 @@ export async function run(argv: string[], deps: RunDeps): Promise<number> {
        */
       case 'login': {
         const base = deps.baseUrl ?? apiBaseFromEnv();
-        let token = flagValue('--token') ?? rest[0];
+        let token = flagToken ?? rest[0];
         if (!token && deps.prompt) {
           deps.out(`Create a token at ${base.replace(/\/api$/, '')}/account/tokens`);
           token = (await deps.prompt('Token: ')).trim();
@@ -389,7 +477,7 @@ export async function run(argv: string[], deps: RunDeps): Promise<number> {
           : domains[0];
         if (!target) {
           deps.err(hostname ? `No domain ${hostname} on this space.` : 'No domains on this space.');
-          return 1;
+          return EXIT.NOT_FOUND;
         }
         const { domain } = await deps.client.domains.verify(orgId, spaceId, target.id);
         const setup = await deps.client.domains.setup(orgId, spaceId, target.id).catch(() => null);
@@ -402,6 +490,18 @@ export async function run(argv: string[], deps: RunDeps): Promise<number> {
         // is what a script reads, so it has to say which happened.
         return domain.verified ? 0 : 1;
       }
+      // Broken links in a folder or a published space (FMU-F05).
+      case 'check':
+        return runCheck(argv, rest, {
+          out: deps.out,
+          err: deps.err,
+          env: envWithConfig(deps.env),
+          request: <T,>(
+            method: string,
+            path: string,
+            opts?: { query?: Record<string, string | number | boolean | undefined> },
+          ) => deps.client.request<T>(method, path, opts),
+        });
       case 'content':
         return runContent(argv, rest, {
           client: deps.client,
@@ -434,20 +534,20 @@ export async function run(argv: string[], deps: RunDeps): Promise<number> {
       default:
         deps.err(`Unknown command: ${cmd}`);
         deps.out(HELP);
-        return 1;
+        return EXIT.USAGE;
     }
   } catch (e) {
     const err = e as { status?: number; code?: string; message?: string };
     deps.err(
       `Error${err.status ? ` ${err.status}` : ''}${err.code ? ` (${err.code})` : ''}: ${err.message ?? String(e)}`,
     );
-    return 1;
+    return exitCodeForError(e);
   }
 }
 
 function usage(deps: RunDeps, form: string): number {
   deps.err(`Usage: forumulate ${form}`);
-  return 1;
+  return EXIT.USAGE;
 }
 
 /** `live`, `verified (not serving yet)`, `unverified` — one word a person can scan. */
